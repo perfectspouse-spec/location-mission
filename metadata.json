@@ -1,0 +1,6 @@
+{
+  "name": "Konum Görev Yöneticisi",
+  "description": "Google Maps ve yapay zeka destekli, arka planda çalışan konum tabanlı görev hatırlatıcısı ve çoklu cihaz senkronizasyonu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
