@@ -39,6 +39,10 @@ class TaskRepository(private val dao: TaskLocationDao) {
         dao.setCompleted(task.id, newStatus, System.currentTimeMillis())
     }
 
+    suspend fun clearCompletedTasks() {
+        dao.clearCompletedTasks()
+    }
+
     suspend fun markAsNotified(id: Long) {
         dao.markAsNotified(id, System.currentTimeMillis())
     }
@@ -79,6 +83,9 @@ class TaskRepository(private val dao: TaskLocationDao) {
         for (t in tasks) {
             val obj = JSONObject()
             obj.put("syncId", t.syncId)
+            obj.put("title", t.title)
+            obj.put("description", t.description)
+            obj.put("priority", t.priority)
             obj.put("placeName", t.placeName)
             obj.put("category", t.category)
             obj.put("latitude", t.latitude)
@@ -109,6 +116,9 @@ class TaskRepository(private val dao: TaskLocationDao) {
                 TaskLocationEntity(
                     id = 0,
                     syncId = obj.optString("syncId", java.util.UUID.randomUUID().toString()),
+                    title = obj.optString("title", ""),
+                    description = obj.optString("description", ""),
+                    priority = obj.optString("priority", "MEDIUM"),
                     placeName = obj.optString("placeName", ""),
                     category = obj.optString("category", "Genel"),
                     latitude = obj.optDouble("latitude", 0.0),

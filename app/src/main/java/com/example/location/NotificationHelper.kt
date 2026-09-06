@@ -62,13 +62,19 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val priorityText = when (task.priority.uppercase()) {
+            "HIGH" -> "🚨 Yüksek Öncelik"
+            "LOW" -> "🟢 Düşük Öncelik"
+            else -> "🟡 Orta Öncelik"
+        }
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID_REMINDERS)
             .setSmallIcon(android.R.drawable.ic_dialog_map)
-            .setContentTitle("📍 ${task.placeName} konumuna vardınız!")
-            .setContentText("Görev: ${task.taskDescription}")
+            .setContentTitle("📍 ${task.displayTitle} konumuna vardınız!")
+            .setContentText("$priorityText • ${task.displayDescription}")
             .setStyle(
                 NotificationCompat.BigTextStyle()
-                    .bigText("Görev: ${task.taskDescription}\nAdres: ${task.address.ifBlank { "Google Maps konumu" }}\nKategori: ${task.category}")
+                    .bigText("$priorityText\nGörev: ${task.displayDescription}\nYer: ${task.placeName}\nAdres: ${task.address.ifBlank { "Google Haritalar konumu" }}\nKategori: ${task.category}")
             )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setDefaults(NotificationCompat.DEFAULT_ALL)

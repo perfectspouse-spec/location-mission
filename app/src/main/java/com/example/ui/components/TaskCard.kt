@@ -1,13 +1,14 @@
 package com.example.ui.components
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.PriorityHigh
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Card
@@ -45,7 +48,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -55,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.TaskLocationEntity
 import com.example.location.LocationHelper
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TaskCard(
     task: TaskLocationEntity,
@@ -66,10 +73,18 @@ fun TaskCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onSimulateArrival: () -> Unit,
+    onShowRoute: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val categoryColor = getCategoryColor(task.category)
+
+    val (priorityContainerColor, priorityTextColor, priorityLabel) = when (task.priority.uppercase()) {
+        "HIGH" -> Triple(Color(0xFFFFEBEE), Color(0xFFC62828), "🚨 YÜKSEK")
+        "LOW" -> Triple(Color(0xFFE8F5E9), Color(0xFF2E7D32), "🟢 DÜŞÜK")
+        else -> Triple(Color(0xFFFFF3E0), Color(0xFFE65100), "🟡 ORTA")
+    }
 
     val borderColor by animateColorAsState(
         targetValue = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
@@ -92,7 +107,13 @@ fun TaskCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable { onSelect() }
+            .combinedClickable(
+                onClick = { onSelect() },
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDelete()
+                }
+            )
             .testTag("task_card_${task.id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -102,7 +123,10 @@ fun TaskCard(
                 MaterialTheme.colorScheme.surface
             }
         ),
-        border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) borderColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        border = BorderStroke(
+            if (isSelected) 2.dp else 1.dp,
+            if (isSelected) borderColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 1.dp)
     ) {
         Column(
@@ -110,7 +134,7 @@ fun TaskCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Top Row: Category Pill + Completion Checkbox + Distance
+            // Top Row: Priority Badge + Category Pill + Distance + Checkbox
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -120,6 +144,23 @@ fun TaskCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
+                    // Priority Badge
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = priorityContainerColor
+                    ) {
+                        Text(
+                            text = priorityLabel,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = priorityTextColor,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Category Pill
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = categoryColor.copy(alpha = 0.12f)
@@ -133,7 +174,7 @@ fun TaskCard(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     Text(
                         text = "⭕ ${task.radiusMeters}m",
@@ -142,7 +183,7 @@ fun TaskCard(
                     )
 
                     if (distanceText != null) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "• $distanceText",
                             style = MaterialTheme.typography.labelSmall,
@@ -156,7 +197,7 @@ fun TaskCard(
                 IconButton(
                     onClick = onToggleComplete,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(38.dp)
                         .testTag("complete_button_${task.id}")
                 ) {
                     Icon(
@@ -169,9 +210,9 @@ fun TaskCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Place Name
+            // Task Title
             Text(
-                text = task.placeName,
+                text = task.displayTitle,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = if (task.isCompleted) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
@@ -179,11 +220,24 @@ fun TaskCard(
                 overflow = TextOverflow.Ellipsis
             )
 
+            // Place Name (if different from title)
+            if (task.placeName.isNotBlank() && task.placeName != task.title) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "📍 ${task.placeName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
             Spacer(modifier = Modifier.height(4.dp))
 
             // Task Description (What user wants to do at this place)
             Text(
-                text = "🎯 ${task.taskDescription}",
+                text = "🎯 ${task.displayDescription}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (task.isCompleted) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurfaceVariant,
                 textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None
@@ -192,7 +246,7 @@ fun TaskCard(
             if (task.address.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "📍 ${task.address}",
+                    text = task.address,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                     maxLines = 1,
@@ -252,6 +306,23 @@ fun TaskCard(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Show Route on Map
+                    if (onShowRoute != null) {
+                        FilledTonalIconButton(
+                            onClick = onShowRoute,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("btn_show_route_${task.id}")
+                        ) {
+                            Icon(
+                                Icons.Default.Route,
+                                contentDescription = "Yolu Göster",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
                     // Google Maps External Open
                     IconButton(
                         onClick = {
@@ -281,10 +352,27 @@ fun TaskCard(
                         )
                     }
 
-                    // Delete
+                    // Delete with tactile haptic feedback on click & long press
                     IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(36.dp)
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDelete()
+                        },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("btn_delete_task_${task.id}")
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onLongPress = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onDelete()
+                                    },
+                                    onTap = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onDelete()
+                                    }
+                                )
+                            }
                     ) {
                         Icon(
                             Icons.Default.Delete,

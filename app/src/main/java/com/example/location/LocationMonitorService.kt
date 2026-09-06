@@ -22,8 +22,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class LocationMonitorService : Service() {
@@ -113,6 +115,16 @@ class LocationMonitorService : Service() {
                     it,
                     Looper.getMainLooper()
                 )
+            }
+
+            // Explicit 10-second timer to ensure positions are compared every 10 seconds
+            serviceScope.launch {
+                while (isActive) {
+                    delay(10000L)
+                    _currentLocation.value?.let { loc ->
+                        checkTasksProximity(loc)
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to request location updates", e)

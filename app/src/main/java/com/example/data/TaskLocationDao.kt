@@ -11,13 +11,13 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TaskLocationDao {
 
-    @Query("SELECT * FROM task_locations ORDER BY isCompleted ASC, createdAt DESC")
+    @Query("SELECT * FROM task_locations ORDER BY isCompleted ASC, CASE priority WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END ASC, createdAt DESC")
     fun getAllTasksFlow(): Flow<List<TaskLocationEntity>>
 
-    @Query("SELECT * FROM task_locations WHERE isCompleted = 0 ORDER BY createdAt DESC")
+    @Query("SELECT * FROM task_locations WHERE isCompleted = 0 ORDER BY CASE priority WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END ASC, createdAt DESC")
     fun getActiveTasksFlow(): Flow<List<TaskLocationEntity>>
 
-    @Query("SELECT * FROM task_locations WHERE isCompleted = 0")
+    @Query("SELECT * FROM task_locations WHERE isCompleted = 0 ORDER BY CASE priority WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END ASC, createdAt DESC")
     suspend fun getActiveTasksList(): List<TaskLocationEntity>
 
     @Query("SELECT * FROM task_locations")
@@ -49,4 +49,7 @@ interface TaskLocationDao {
 
     @Query("UPDATE task_locations SET isCompleted = :isCompleted, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setCompleted(id: Long, isCompleted: Boolean, updatedAt: Long)
+
+    @Query("DELETE FROM task_locations WHERE isCompleted = 1")
+    suspend fun clearCompletedTasks()
 }

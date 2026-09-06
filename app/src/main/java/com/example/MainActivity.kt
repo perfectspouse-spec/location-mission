@@ -8,6 +8,8 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.location.NotificationHelper
 import com.example.ui.MainViewModel
 import com.example.ui.screens.HomeScreen
@@ -31,7 +33,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MyApplicationTheme {
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            MyApplicationTheme(themeMode = uiState.themeMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     HomeScreen(viewModel = viewModel)
                 }

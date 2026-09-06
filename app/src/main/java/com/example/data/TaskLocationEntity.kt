@@ -9,12 +9,15 @@ data class TaskLocationEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val syncId: String = UUID.randomUUID().toString(),
-    val placeName: String,
+    val title: String = "",
+    val description: String = "",
+    val priority: String = "MEDIUM", // "HIGH", "MEDIUM", "LOW"
+    val placeName: String = "",
     val category: String = "Genel", // İşyeri, Park, Tiyatro / Kültür, Market, Kafe, Diğer
-    val latitude: Double,
-    val longitude: Double,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
     val address: String = "",
-    val taskDescription: String,
+    val taskDescription: String = "",
     val radiusMeters: Int = 100,
     val isCompleted: Boolean = false,
     val isNotificationTriggered: Boolean = false,
@@ -23,4 +26,10 @@ data class TaskLocationEntity(
     val updatedAt: Long = System.currentTimeMillis(),
     val deviceOrigin: String = "Cihaz",
     val geminiPlaceInfo: String? = null
-)
+) {
+    val displayTitle: String
+        get() = title.ifBlank { placeName.ifBlank { "Görev" } }
+
+    val displayDescription: String
+        get() = description.ifBlank { taskDescription }
+}

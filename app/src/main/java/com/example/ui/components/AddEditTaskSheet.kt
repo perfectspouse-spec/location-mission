@@ -1,7 +1,12 @@
 package com.example.ui.components
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +14,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -20,17 +26,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +63,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -67,12 +82,14 @@ fun AddEditTaskSheet(
     searchResults: List<PlaceSearchResult>,
     onSearchPlace: (String) -> Unit,
     onSave: (
+        title: String,
+        description: String,
+        priority: String,
         placeName: String,
         category: String,
         latitude: Double,
         longitude: Double,
         address: String,
-        taskDescription: String,
         radiusMeters: Int,
         geminiPlaceInfo: String?
     ) -> Unit,
@@ -80,11 +97,15 @@ fun AddEditTaskSheet(
     currentUserLat: Double?,
     currentUserLng: Double?
 ) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var title by remember { mutableStateOf(taskToEdit?.title ?: "") }
+    var description by remember { mutableStateOf(taskToEdit?.displayDescription ?: "") }
+    var priority by remember { mutableStateOf(taskToEdit?.priority ?: "MEDIUM") }
     var searchQuery by remember { mutableStateOf("") }
     var placeName by remember { mutableStateOf(taskToEdit?.placeName ?: "") }
-    var taskDescription by remember { mutableStateOf(taskToEdit?.taskDescription ?: "") }
     var category by remember { mutableStateOf(taskToEdit?.category ?: "İşyeri") }
     var address by remember { mutableStateOf(taskToEdit?.address ?: "") }
     var latitude by remember { mutableDoubleStateOf(taskToEdit?.latitude ?: (currentUserLat ?: 41.0082)) }
@@ -94,6 +115,11 @@ fun AddEditTaskSheet(
 
     val categories = listOf("İşyeri", "Park", "Tiyatro / Kültür", "Market", "Kafe / Restoran", "Diğer")
     val radiusOptions = listOf(50, 100, 250, 500)
+    val priorityOptions = listOf(
+        Triple("HIGH", "🚨 Yüksek", Color(0xFFC62828)),
+        Triple("MEDIUM", "🟡 Orta", Color(0xFFE65100)),
+        Triple("LOW", "🟢 Düşük", Color(0xFF2E7D32))
+    )
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -116,28 +142,111 @@ fun AddEditTaskSheet(
             ) {
                 Column {
                     Text(
-                        text = if (taskToEdit == null) "Yeni Konum Görevi" else "Görevi Düzenle",
+                        text = if (taskToEdit == null) "Yeni Görev Ekle" else "Görevi Düzenle",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Vardığınızda bildirim ile hatırlatılır",
+                        text = "Konuma vardığınızda bildirim ile hatırlatılır",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                IconButton(onClick = onDismiss) {
+                IconButton(onClick = onDismiss, modifier = Modifier.testTag("btn_close_sheet")) {
                     Icon(Icons.Default.Close, contentDescription = "Kapat")
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // AI & Google Maps Grounding Search Box
+            // 1. Task Title (Başlık)
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it },
+                label = { Text("Görev Başlığı *") },
+                placeholder = { Text("Örn: Süreyya Tiyatrosu Bilet Teslimatı") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("task_title_input"),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 2. Task Description (Açıklama / Ne Yapılacak)
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it },
+                label = { Text("Görev Açıklaması / Ne Yapılacak? *") },
+                placeholder = { Text("Örn: Gişeden cuma günkü rezerve biletleri teslim al") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("task_description_input"),
+                shape = RoundedCornerShape(12.dp),
+                minLines = 2
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 3. Priority Selection (Öncelik Seçimi)
+            Text(
+                text = "Öncelik Seviyesi *",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                priorityOptions.forEach { (key, label, color) ->
+                    val isSelected = priority.equals(key, ignoreCase = true)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) color.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        border = BorderStroke(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) color else MaterialTheme.colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { priority = key }
+                            .testTag("priority_chip_$key")
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                color = if (isSelected) color else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 4. Location Selection (Konum Seçimi)
+            Text(
+                text = "Konum / Yer Seçimi *",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Search with Google Maps Grounding
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -154,7 +263,7 @@ fun AddEditTaskSheet(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Google Maps Verileri ile Yeri Bul",
+                            text = "Google Haritalar ile Otomatik Bul",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -170,7 +279,7 @@ fun AddEditTaskSheet(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Örn: Süreyya Operası, Emirgan Parkı, Zorlu...") },
+                            placeholder = { Text("Örn: Süreyya Operası, Emirgan Parkı...") },
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("place_search_input"),
@@ -197,168 +306,191 @@ fun AddEditTaskSheet(
                             }
                         }
                     }
+                }
+            }
 
-                    // Search Results with Maps Grounding data
-                    if (searchResults.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        searchResults.forEach { result ->
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 2.dp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        placeName = result.placeName
-                                        category = result.category
-                                        address = result.address
-                                        latitude = result.latitude
-                                        longitude = result.longitude
-                                        geminiPlaceInfo = result.summary
-                                        if (result.suggestedTasks.isNotEmpty() && taskDescription.isBlank()) {
-                                            taskDescription = result.suggestedTasks.first()
-                                        }
+            // Show Search Results from Gemini Maps Grounding if available
+            if (searchResults.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    searchResults.forEach { result ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    placeName = result.placeName
+                                    latitude = result.latitude
+                                    longitude = result.longitude
+                                    address = result.address
+                                    category = when {
+                                        result.category.contains("park", true) -> "Park"
+                                        result.category.contains("tiyatro", true) || result.category.contains("kültür", true) -> "Tiyatro / Kültür"
+                                        result.category.contains("market", true) -> "Market"
+                                        result.category.contains("kafe", true) || result.category.contains("restoran", true) -> "Kafe / Restoran"
+                                        result.category.contains("ofis", true) || result.category.contains("iş", true) -> "İşyeri"
+                                        else -> result.category
                                     }
-                                    .padding(vertical = 4.dp)
+                                    if (description.isBlank() && result.suggestedTasks.isNotEmpty()) {
+                                        description = result.suggestedTasks.first()
+                                    }
+                                    if (title.isBlank()) {
+                                        title = result.placeName
+                                    }
+                                    geminiPlaceInfo = result.summary
+                                }
+                                .testTag("search_result_item"),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = result.placeName,
-                                            fontWeight = FontWeight.Bold,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = getCategoryColor(result.category).copy(alpha = 0.15f)
-                                        ) {
-                                            Text(
-                                                text = result.category,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = getCategoryColor(result.category),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-
+                                Icon(
+                                    Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = result.placeName,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                     Text(
                                         text = result.address,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-
-                                    Text(
-                                        text = result.summary,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.outline,
-                                        fontSize = 11.sp
-                                    )
-
-                                    if (result.suggestedTasks.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "💡 Önerilen Görev: ${result.suggestedTasks.first()}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.secondary,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
                                 }
+                                Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Place Name Field
+            // Place Name manual input
             OutlinedTextField(
                 value = placeName,
-                onValueChange = { placeName = it },
-                label = { Text("Yer Adı (İşyeri, Park, Tiyatro vb.) *") },
+                onValueChange = {
+                    placeName = it
+                    if (title.isBlank()) title = it
+                },
+                label = { Text("Konum / Yer Adı *") },
                 placeholder = { Text("Örn: Kadıköy Süreyya Tiyatrosu") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("task_place_name_input"),
+                    .testTag("place_name_input"),
                 shape = RoundedCornerShape(12.dp),
-                leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) }
+                singleLine = true
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Task Description (What user wants to do at this place)
+            // Address field
             OutlinedTextField(
-                value = taskDescription,
-                onValueChange = { taskDescription = it },
-                label = { Text("Bu Yerde Ne Yapmak İstiyorsunuz? *") },
-                placeholder = { Text("Örn: Gişeden tiyatro biletlerini teslim al") },
+                value = address,
+                onValueChange = { address = it },
+                label = { Text("Açık Adres (Opsiyonel)") },
+                placeholder = { Text("Örn: Bahariye Cad. No:29, Kadıköy") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Interactive Pin on Map Preview Box
+            Text(
+                text = "📍 Haritada Konum İğneleme (Dokunarak Seçin)",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("task_description_input"),
-                shape = RoundedCornerShape(12.dp),
-                minLines = 2
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Category Chips
-            Text(
-                text = "Kategori",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .height(160.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .pointerInput(Unit) {
+                        detectTapGestures { offset ->
+                            // Translate tap on mini map into coordinate nudge
+                            val width = size.width.toFloat()
+                            val height = size.height.toFloat()
+                            val deltaLng = ((offset.x / width) - 0.5f) * 0.04f
+                            val deltaLat = (0.5f - (offset.y / height)) * 0.04f
+                            latitude += deltaLat
+                            longitude += deltaLng
+                        }
+                    }
             ) {
-                categories.forEach { cat ->
-                    FilterChip(
-                        selected = category == cat,
-                        onClick = { category = cat },
-                        label = { Text(cat, fontSize = 12.sp) },
-                        leadingIcon = if (category == cat) {
-                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                        } else null
-                    )
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(12.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.2f),
+                            modifier = Modifier.size(54.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.LocationOn,
+                                    contentDescription = "İğne",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Seçili İğne: ${String.format("%.4f", latitude)}, ${String.format("%.4f", longitude)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Haritaya dokunarak iğneyi taşıyabilirsiniz",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Open in Google Maps Button
+                    OutlinedButton(
+                        onClick = {
+                            val uri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude(${Uri.encode(placeName.ifBlank { "Hedef Konum" })})")
+                            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Google Maps", fontSize = 11.sp)
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Geofence Detection Radius
-            Text(
-                text = "Bildirim Çapı (Geofence)",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "Seçilen mesafeye yaklaştığınızda bildirim tetiklenir",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                radiusOptions.forEach { r ->
-                    FilterChip(
-                        selected = radiusMeters == r,
-                        onClick = { radiusMeters = r },
-                        label = { Text("${r} m", fontSize = 13.sp) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Coordinates & Current Location Option
             Row(
@@ -388,48 +520,126 @@ fun AddEditTaskSheet(
                             latitude = currentUserLat
                             longitude = currentUserLng
                             address = "Mevcut konumunuz"
-                        }
+                        },
+                        modifier = Modifier.testTag("btn_use_current_location")
                     ) {
-                        Icon(Icons.Default.MyLocation, contentDescription = "Konumumu Kullan", tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            Icons.Default.MyLocation,
+                            contentDescription = "Mevcut Konumu Kullan",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Save Button
-            Button(
-                onClick = {
-                    if (placeName.isNotBlank() && taskDescription.isNotBlank()) {
-                        onSave(
-                            placeName.trim(),
-                            category,
-                            latitude,
-                            longitude,
-                            address.trim(),
-                            taskDescription.trim(),
-                            radiusMeters,
-                            geminiPlaceInfo
-                        )
-                    }
-                },
-                enabled = placeName.isNotBlank() && taskDescription.isNotBlank(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .testTag("save_task_button"),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
+            // Category Chips
+            Text(
+                text = "Kategori",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Icon(Icons.Default.Check, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (taskToEdit == null) "Görevi Kaydet & Takibe Başla" else "Değişiklikleri Kaydet",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
+                categories.forEach { cat ->
+                    FilterChip(
+                        selected = category == cat,
+                        onClick = { category = cat },
+                        label = { Text(cat, fontSize = 12.sp) },
+                        leadingIcon = if (category == cat) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        } else null
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Geofence Detection Radius
+            Text(
+                text = "Varış Bildirim Yarıçapı (Geofence)",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "Bu mesafeye girdiğinizde bildirim tetiklenecektir",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                radiusOptions.forEach { r ->
+                    FilterChip(
+                        selected = radiusMeters == r,
+                        onClick = { radiusMeters = r },
+                        label = { Text("${r} m", fontSize = 13.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Save & Cancel Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp)
+                ) {
+                    Text("İptal")
+                }
+
+                Button(
+                    onClick = {
+                        val finalTitle = title.ifBlank { placeName.ifBlank { "Görev" } }
+                        val finalPlace = placeName.ifBlank { title.ifBlank { "Konum" } }
+                        if (description.isNotBlank()) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onSave(
+                                finalTitle.trim(),
+                                description.trim(),
+                                priority,
+                                finalPlace.trim(),
+                                category,
+                                latitude,
+                                longitude,
+                                address.trim(),
+                                radiusMeters,
+                                geminiPlaceInfo
+                            )
+                        }
+                    },
+                    enabled = (title.isNotBlank() || placeName.isNotBlank()) && description.isNotBlank(),
+                    modifier = Modifier
+                        .weight(2f)
+                        .height(52.dp)
+                        .testTag("save_task_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (taskToEdit == null) "Görevi Kaydet" else "Değişiklikleri Kaydet",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
