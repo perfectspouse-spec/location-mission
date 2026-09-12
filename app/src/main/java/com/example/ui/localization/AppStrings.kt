@@ -84,7 +84,11 @@ data class LocalizedStrings(
     val themeSystem: String,
     val themeLight: String,
     val themeDark: String,
-    val hapticDeleteTip: String
+    val hapticDeleteTip: String,
+    val placeNotFoundMessage: (String) -> String,
+    val placeFoundSuccess: String,
+    val placeLocationNotSetWarning: String,
+    val resolveLocation: String
 )
 
 object LocalizationManager {
@@ -165,7 +169,11 @@ object LocalizationManager {
         themeSystem = "System Default",
         themeLight = "Light Mode",
         themeDark = "Dark Mode",
-        hapticDeleteTip = "Long-press trash icon or card to delete with tactile feedback."
+        hapticDeleteTip = "Long-press trash icon or card to delete with tactile feedback.",
+        placeNotFoundMessage = { query -> "Location could not be found for '$query'. Please verify the place name or pick the pin on the map." },
+        placeFoundSuccess = "Location found and coordinates resolved!",
+        placeLocationNotSetWarning = "Location coordinates could not be resolved for this place. Please search for the place or select it on the map.",
+        resolveLocation = "Locate Place"
     )
 
     val turkish = LocalizedStrings(
@@ -244,7 +252,11 @@ object LocalizationManager {
         themeSystem = "Sistem Varsayılanı",
         themeLight = "Açık Tema",
         themeDark = "Koyu Tema",
-        hapticDeleteTip = "Silmek için çöp kutusu simgesine veya karta basılı tutun."
+        hapticDeleteTip = "Silmek için çöp kutusu simgesine veya karta basılı tutun.",
+        placeNotFoundMessage = { query -> "'$query' yeri bulunamadı. Lütfen yer adını kontrol edin veya harita üzerinden konumu işaretleyin." },
+        placeFoundSuccess = "Konum bulundu ve koordinatlar başarıyla işlendi!",
+        placeLocationNotSetWarning = "Bu yer için konum bulunamadı. Lütfen yer araması yapın veya harita üzerinden konumu seçin.",
+        resolveLocation = "Konumu Bul"
     )
 
     val spanish = LocalizedStrings(
@@ -323,7 +335,11 @@ object LocalizationManager {
         themeSystem = "Predeterminado del Sistema",
         themeLight = "Modo Claro",
         themeDark = "Modo Oscuro",
-        hapticDeleteTip = "Mantén presionado el icono o la tarjeta para eliminar."
+        hapticDeleteTip = "Mantén presionado el icono o la tarjeta para eliminar.",
+        placeNotFoundMessage = { query -> "No se encontró la ubicación de '$query'. Por favor verifique el nombre o selecciónela en el mapa." },
+        placeFoundSuccess = "¡Ubicación encontrada y coordenadas aplicadas!",
+        placeLocationNotSetWarning = "No se pudieron resolver las coordenadas. Por favor busque el lugar o selecciónelo en el mapa.",
+        resolveLocation = "Ubicar Lugar"
     )
 
     val german = LocalizedStrings(
@@ -402,7 +418,11 @@ object LocalizationManager {
         themeSystem = "Systemstandard",
         themeLight = "Helles Design",
         themeDark = "Dunkles Design",
-        hapticDeleteTip = "Lange auf das Symbol oder die Karte drücken zum Löschen."
+        hapticDeleteTip = "Lange auf das Symbol oder die Karte drücken zum Löschen.",
+        placeNotFoundMessage = { query -> "Standort für '$query' wurde nicht gefunden. Bitte überprüfen Sie den Namen oder wählen Sie ihn auf der Karte." },
+        placeFoundSuccess = "Standort gefunden und Koordinaten aktualisiert!",
+        placeLocationNotSetWarning = "Koordinaten konnten nicht ermittelt werden. Bitte suchen Sie den Ort oder wählen Sie ihn auf der Karte.",
+        resolveLocation = "Ort lokalisieren"
     )
 
     val french = LocalizedStrings(
@@ -481,7 +501,11 @@ object LocalizationManager {
         themeSystem = "Thème du système",
         themeLight = "Thème clair",
         themeDark = "Thème sombre",
-        hapticDeleteTip = "Appui long sur l'icône ou la carte pour supprimer."
+        hapticDeleteTip = "Appui long sur l'icône ou la carte pour supprimer.",
+        placeNotFoundMessage = { query -> "L'emplacement pour '$query' est introuvable. Veuillez vérifier le nom ou sélectionner sur la carte." },
+        placeFoundSuccess = "Emplacement trouvé et coordonnées appliquées !",
+        placeLocationNotSetWarning = "Les coordonnées n'ont pas pu être déterminées. Veuillez rechercher le lieu ou le sélectionner sur la carte.",
+        resolveLocation = "Localiser le lieu"
     )
 
     fun getStrings(language: AppLanguage): LocalizedStrings {

@@ -154,6 +154,13 @@ fun HomeScreen(
         }
     }
 
+    // Show place search error message via Snackbar if place is not found
+    LaunchedEffect(uiState.searchError) {
+        uiState.searchError?.let { err ->
+            snackbarHostState.showSnackbar(err)
+        }
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isTabletLayout = maxWidth >= 600.dp
 
@@ -200,9 +207,11 @@ fun HomeScreen(
             taskToEdit = uiState.taskToEdit,
             isSearchingPlace = uiState.isSearchingPlace,
             searchResults = uiState.searchResults,
+            searchError = uiState.searchError,
+            onClearSearchError = { viewModel.clearSearchError() },
             onSearchPlace = { query -> viewModel.searchPlaceWithMapsGrounding(query) },
-            onSave = { title, desc, priority, placeName, category, lat, lng, addr, radius, info ->
-                viewModel.saveTask(title, desc, priority, placeName, category, lat, lng, addr, radius, info)
+            onSave = { title, desc, priority, placeName, category, lat, lng, addr, radius, info, isLocationExplicitlySet ->
+                viewModel.saveTask(title, desc, priority, placeName, category, lat, lng, addr, radius, info, isLocationExplicitlySet)
             },
             onDismiss = { viewModel.closeAddEditSheet() },
             currentUserLat = uiState.currentUserLocation?.latitude,

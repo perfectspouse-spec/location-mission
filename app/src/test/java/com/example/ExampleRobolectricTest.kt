@@ -85,4 +85,17 @@ class ExampleRobolectricTest {
     val fr = LocalizationManager.getStrings(AppLanguage.FRENCH)
     assertEquals("Gestionnaire de Tâches par Emplacement", fr.appTitle)
   }
+
+  @Test
+  fun `verify place not found error message is localized correctly`() {
+    val tr = LocalizationManager.getStrings(AppLanguage.TURKISH)
+    val trMsg = tr.placeNotFoundMessage("Bilinmeyen Yer")
+    assertTrue(trMsg.contains("Bilinmeyen Yer"))
+    assertTrue(trMsg.contains("bulunamadı"))
+
+    val en = LocalizationManager.getStrings(AppLanguage.ENGLISH)
+    val enMsg = en.placeNotFoundMessage("Unknown Place")
+    assertTrue(enMsg.contains("Unknown Place"))
+    assertTrue(enMsg.contains("could not be found"))
+  }
 }

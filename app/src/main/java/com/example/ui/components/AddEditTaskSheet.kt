@@ -47,6 +47,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.LocationSearching
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -80,6 +83,8 @@ fun AddEditTaskSheet(
     taskToEdit: TaskLocationEntity?,
     isSearchingPlace: Boolean,
     searchResults: List<PlaceSearchResult>,
+    searchError: String? = null,
+    onClearSearchError: () -> Unit = {},
     onSearchPlace: (String) -> Unit,
     onSave: (
         title: String,
@@ -91,7 +96,8 @@ fun AddEditTaskSheet(
         longitude: Double,
         address: String,
         radiusMeters: Int,
-        geminiPlaceInfo: String?
+        geminiPlaceInfo: String?,
+        isLocationExplicitlySet: Boolean
     ) -> Unit,
     onDismiss: () -> Unit,
     currentUserLat: Double?,
@@ -112,6 +118,8 @@ fun AddEditTaskSheet(
     var longitude by remember { mutableDoubleStateOf(taskToEdit?.longitude ?: (currentUserLng ?: 28.9784)) }
     var radiusMeters by remember { mutableIntStateOf(taskToEdit?.radiusMeters ?: 100) }
     var geminiPlaceInfo by remember { mutableStateOf(taskToEdit?.geminiPlaceInfo) }
+    var isLocationExplicitlySet by remember { mutableStateOf(taskToEdit != null) }
+    var lastResolvedPlaceName by remember { mutableStateOf(taskToEdit?.placeName ?: "") }
 
     val categories = listOf("İşyeri", "Park", "Tiyatro / Kültür", "Market", "Kafe / Restoran", "Diğer")
     val radiusOptions = listOf(50, 100, 250, 500)
@@ -278,7 +286,10 @@ fun AddEditTaskSheet(
                     ) {
                         OutlinedTextField(
                             value = searchQuery,
-                            onValueChange = { searchQuery = it },
+                            onValueChange = {
+                                searchQuery = it
+                                onClearSearchError()
+                            },
                             placeholder = { Text("Örn: Süreyya Operası, Emirgan Parkı...") },
                             modifier = Modifier
                                 .weight(1f)
@@ -290,8 +301,13 @@ fun AddEditTaskSheet(
                         Spacer(modifier = Modifier.width(8.dp))
 
                         Button(
-                            onClick = { onSearchPlace(searchQuery) },
-                            enabled = searchQuery.isNotBlank() && !isSearchingPlace,
+                            onClick = {
+                                val target = searchQuery.ifBlank { placeName }
+                                if (target.isNotBlank()) {
+                                    onSearchPlace(target)
+                                }
+                            },
+                            enabled = (searchQuery.isNotBlank() || placeName.isNotBlank()) && !isSearchingPlace,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.testTag("search_place_button")
                         ) {
@@ -309,7 +325,46 @@ fun AddEditTaskSheet(
                 }
             }
 
-            // Show Search Results from Gemini Maps Grounding if available
+            // Error Banner if place could not be found
+            if (!searchError.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("place_search_error_banner")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = searchError,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = onClearSearchError, modifier = Modifier.size(24.dp)) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Kapat",
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Show Search Results from Gemini Maps Grounding / Geocoding if available
             if (searchResults.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Column(
@@ -325,6 +380,9 @@ fun AddEditTaskSheet(
                                     latitude = result.latitude
                                     longitude = result.longitude
                                     address = result.address
+                                    isLocationExplicitlySet = true
+                                    lastResolvedPlaceName = result.placeName
+                                    onClearSearchError()
                                     category = when {
                                         result.category.contains("park", true) -> "Park"
                                         result.category.contains("tiyatro", true) || result.category.contains("kültür", true) -> "Tiyatro / Kültür"
@@ -377,17 +435,66 @@ fun AddEditTaskSheet(
                 }
             }
 
+            // Success badge when location is verified
+            if (isLocationExplicitlySet && lastResolvedPlaceName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Konum Doğrulandı: $lastResolvedPlaceName (${String.format("%.4f", latitude)}, ${String.format("%.4f", longitude)})",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Place Name manual input
+            // Place Name manual input with search trigger
             OutlinedTextField(
                 value = placeName,
                 onValueChange = {
                     placeName = it
+                    if (it != lastResolvedPlaceName) {
+                        isLocationExplicitlySet = false
+                    }
                     if (title.isBlank()) title = it
+                    onClearSearchError()
                 },
                 label = { Text("Konum / Yer Adı *") },
                 placeholder = { Text("Örn: Kadıköy Süreyya Tiyatrosu") },
+                trailingIcon = {
+                    if (placeName.isNotBlank()) {
+                        IconButton(
+                            onClick = {
+                                onSearchPlace(placeName)
+                            },
+                            modifier = Modifier.testTag("btn_find_place_location")
+                        ) {
+                            Icon(
+                                Icons.Default.LocationSearching,
+                                contentDescription = "Konumu Bul",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("place_name_input"),
@@ -435,6 +542,7 @@ fun AddEditTaskSheet(
                             val deltaLat = (0.5f - (offset.y / height)) * 0.04f
                             latitude += deltaLat
                             longitude += deltaLng
+                            isLocationExplicitlySet = true
                         }
                     }
             ) {
@@ -500,7 +608,10 @@ fun AddEditTaskSheet(
             ) {
                 OutlinedTextField(
                     value = String.format("%.4f", latitude),
-                    onValueChange = { latitude = it.toDoubleOrNull() ?: latitude },
+                    onValueChange = {
+                        latitude = it.toDoubleOrNull() ?: latitude
+                        isLocationExplicitlySet = true
+                    },
                     label = { Text("Enlem (Lat)") },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp)
@@ -508,7 +619,10 @@ fun AddEditTaskSheet(
 
                 OutlinedTextField(
                     value = String.format("%.4f", longitude),
-                    onValueChange = { longitude = it.toDoubleOrNull() ?: longitude },
+                    onValueChange = {
+                        longitude = it.toDoubleOrNull() ?: longitude
+                        isLocationExplicitlySet = true
+                    },
                     label = { Text("Boylam (Lng)") },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp)
@@ -520,6 +634,7 @@ fun AddEditTaskSheet(
                             latitude = currentUserLat
                             longitude = currentUserLng
                             address = "Mevcut konumunuz"
+                            isLocationExplicitlySet = true
                         },
                         modifier = Modifier.testTag("btn_use_current_location")
                     ) {
@@ -618,7 +733,8 @@ fun AddEditTaskSheet(
                                 longitude,
                                 address.trim(),
                                 radiusMeters,
-                                geminiPlaceInfo
+                                geminiPlaceInfo,
+                                isLocationExplicitlySet
                             )
                         }
                     },

@@ -15,6 +15,7 @@ import com.example.location.LocationMonitorService
 import com.example.sync.DeviceSyncManager
 import com.example.sync.SyncState
 import com.example.ui.localization.AppLanguage
+import com.example.ui.localization.LocalizationManager
 import com.example.ui.theme.AppThemeMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,7 +70,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getInstance(application)
     private val repository = TaskRepository(database.taskLocationDao())
     private val syncManager = DeviceSyncManager(application, repository)
-    private val geminiService = GeminiMapsService()
+    private val geminiService = GeminiMapsService(application)
     private val prefs = application.getSharedPreferences("geo_task_prefs", Context.MODE_PRIVATE)
 
     private val defaultUserLocation = Location("default_simulated").apply {
@@ -463,6 +464,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun clearSearchError() {
+        _searchError.value = null
+    }
+
     fun saveTask(
         title: String,
         description: String,
@@ -473,11 +478,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         longitude: Double,
         address: String,
         radiusMeters: Int,
-        geminiPlaceInfo: String?
+        geminiPlaceInfo: String?,
+        isLocationExplicitlySet: Boolean = false
     ) {
         viewModelScope.launch {
             val existing = _taskToEdit.value
             val currentDeviceType = syncManager.syncState.value.deviceType
+
+            var finalLat = latitude
+            var finalLng = longitude
+            var finalAddress = address
+            var finalPlaceInfo = geminiPlaceInfo
+
+            // If it's a new task and location has NOT been explicitly verified/chosen on map:
+            // Attempt to resolve the real-world coordinates of the entered place name first!
+            if (existing == null && !isLocationExplicitlySet && placeName.isNotBlank()) {
+                val searchResult = geminiService.searchPlaceWithMapsGrounding(
+                    query = placeName,
+                    userLatitude = uiState.value.currentUserLocation?.latitude,
+                    userLongitude = uiState.value.currentUserLocation?.longitude
+                )
+
+                if (searchResult.isSuccess) {
+                    val place = searchResult.getOrThrow()
+                    finalLat = place.latitude
+                    finalLng = place.longitude
+                    if (finalAddress.isBlank() || finalAddress == "Harita konumu") {
+                        finalAddress = place.address
+                    }
+                    if (finalPlaceInfo.isNullOrBlank()) {
+                        finalPlaceInfo = place.summary
+                    }
+                } else {
+                    // CRITICAL: The place could NOT be resolved to real coordinates!
+                    // Notify user with error message, do NOT silently record the user's current location!
+                    val strings = LocalizationManager.getStrings(_language.value)
+                    _searchError.value = strings.placeNotFoundMessage(placeName)
+                    return@launch
+                }
+            }
 
             if (existing != null) {
                 val updated = existing.copy(
@@ -486,12 +525,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     priority = priority,
                     placeName = placeName,
                     category = category,
-                    latitude = latitude,
-                    longitude = longitude,
-                    address = address,
+                    latitude = finalLat,
+                    longitude = finalLng,
+                    address = finalAddress,
                     taskDescription = description,
                     radiusMeters = radiusMeters,
-                    geminiPlaceInfo = geminiPlaceInfo ?: existing.geminiPlaceInfo,
+                    geminiPlaceInfo = finalPlaceInfo ?: existing.geminiPlaceInfo,
                     updatedAt = System.currentTimeMillis()
                 )
                 repository.updateTask(updated)
@@ -503,17 +542,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     priority = priority,
                     placeName = placeName,
                     category = category,
-                    latitude = latitude,
-                    longitude = longitude,
-                    address = address,
+                    latitude = finalLat,
+                    longitude = finalLng,
+                    address = finalAddress,
                     taskDescription = description,
                     radiusMeters = radiusMeters,
                     deviceOrigin = currentDeviceType,
-                    geminiPlaceInfo = geminiPlaceInfo
+                    geminiPlaceInfo = finalPlaceInfo
                 )
                 val id = repository.addTask(newTask)
                 _selectedTask.value = newTask.copy(id = id)
             }
+            _searchError.value = null
             closeAddEditSheet()
         }
     }
@@ -534,36 +574,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Searches places via Gemini 2.5 Flash with Google Maps Grounding
+     * Searches places via Gemini 2.5 Flash with Google Maps Grounding and Geocoding Service.
+     * If no place is found, reports an error message and NEVER substitutes current user location.
      */
     fun searchPlaceWithMapsGrounding(query: String) {
-        if (query.isBlank()) return
+        val clean = query.trim()
+        if (clean.isBlank()) return
         viewModelScope.launch {
             _isSearchingPlace.value = true
             _searchError.value = null
             val userLoc = uiState.value.currentUserLocation
-            val result = geminiService.searchPlaceWithMapsGrounding(
-                query = query,
+            val result = geminiService.searchMultiplePlaces(
+                query = clean,
                 userLatitude = userLoc?.latitude,
                 userLongitude = userLoc?.longitude
             )
-            result.onSuccess { place ->
-                _searchResults.value = listOf(place)
+            result.onSuccess { places ->
+                if (places.isNotEmpty()) {
+                    _searchResults.value = places
+                    _searchError.value = null
+                } else {
+                    _searchResults.value = emptyList()
+                    val strings = LocalizationManager.getStrings(_language.value)
+                    _searchError.value = strings.placeNotFoundMessage(clean)
+                }
                 _isSearchingPlace.value = false
             }.onFailure { err ->
-                // Graceful fallback for quota exhaustion or offline:
-                // Provide direct place result with default coordinates
-                val fallbackPlace = PlaceSearchResult(
-                    placeName = query,
-                    category = "İşyeri",
-                    latitude = userLoc?.latitude ?: 41.0082,
-                    longitude = userLoc?.longitude ?: 28.9784,
-                    address = "$query (Harita konumu)",
-                    summary = "Google Haritalar konumu girildi.",
-                    suggestedTasks = listOf("$query konumunda görevi tamamla")
-                )
-                _searchResults.value = listOf(fallbackPlace)
-                _searchError.value = null
+                _searchResults.value = emptyList()
+                val strings = LocalizationManager.getStrings(_language.value)
+                _searchError.value = strings.placeNotFoundMessage(clean)
                 _isSearchingPlace.value = false
             }
         }
