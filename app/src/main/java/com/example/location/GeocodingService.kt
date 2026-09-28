@@ -115,7 +115,19 @@ class GeocodingService(private val context: Context? = null) {
      * Resolves the coordinate of a place using Nominatim OpenStreetMap API.
      */
     private fun searchNominatim(query: String): List<PlaceSearchResult> {
-        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        val firstAttempt = queryUrl(query)
+        if (firstAttempt.isNotEmpty()) return firstAttempt
+
+        // If not found on first try, try appending Turkey / Türkiye context
+        if (!query.contains("Türkiye", ignoreCase = true) && !query.contains("Turkey", ignoreCase = true)) {
+            val turkeyAttempt = queryUrl("$query, Türkiye")
+            if (turkeyAttempt.isNotEmpty()) return turkeyAttempt
+        }
+        return emptyList()
+    }
+
+    private fun queryUrl(searchQuery: String): List<PlaceSearchResult> {
+        val encodedQuery = URLEncoder.encode(searchQuery, "UTF-8")
         val url = "https://nominatim.openstreetmap.org/search?q=$encodedQuery&format=json&addressdetails=1&limit=5&accept-language=tr,en"
 
         val request = Request.Builder()
@@ -124,14 +136,24 @@ class GeocodingService(private val context: Context? = null) {
             .get()
             .build()
 
-        val response = httpClient.newCall(request).execute()
+        val response = try {
+            httpClient.newCall(request).execute()
+        } catch (e: Exception) {
+            Log.w(TAG, "Nominatim network error for '$searchQuery'", e)
+            return emptyList()
+        }
+
         if (!response.isSuccessful) {
             Log.w(TAG, "Nominatim returned HTTP ${response.code}")
             return emptyList()
         }
 
         val body = response.body?.string() ?: return emptyList()
-        val jsonArray = JSONArray(body)
+        val jsonArray = try {
+            JSONArray(body)
+        } catch (e: Exception) {
+            return emptyList()
+        }
         val list = mutableListOf<PlaceSearchResult>()
 
         for (i in 0 until jsonArray.length()) {
@@ -140,9 +162,9 @@ class GeocodingService(private val context: Context? = null) {
             val lon = item.optDouble("lon", Double.NaN)
             if (lat.isNaN() || lon.isNaN()) continue
 
-            val displayName = item.optString("display_name", query)
+            val displayName = item.optString("display_name", searchQuery)
             val name = item.optString("name").ifBlank {
-                displayName.split(",").firstOrNull()?.trim() ?: query
+                displayName.split(",").firstOrNull()?.trim() ?: searchQuery
             }
             val type = item.optString("type", "")
             val clazz = item.optString("class", "")
@@ -348,23 +370,35 @@ class GeocodingService(private val context: Context? = null) {
      * Curated catalog of famous places in Turkey and major capitals for instantaneous matching
      */
     private fun findInCuratedLandmarks(query: String): PlaceSearchResult? {
-        val q = query.lowercase().trim()
+        val qNorm = normalizeForMatch(query)
+        if (qNorm.isBlank()) return null
         for (item in LANDMARKS) {
-            if (item.aliases.any { q.contains(it) || it.contains(q) }) {
-                return PlaceSearchResult(
-                    placeName = item.officialName,
-                    category = item.category,
-                    address = item.address,
-                    latitude = item.lat,
-                    longitude = item.lng,
-                    summary = item.summary,
-                    suggestedTasks = item.tasks,
-                    mapsUrl = "https://maps.google.com/?q=${item.lat},${item.lng}",
-                    isGrounded = true
-                )
+            val nameNorm = normalizeForMatch(item.officialName)
+            if (qNorm == nameNorm || qNorm.contains(nameNorm) || nameNorm.contains(qNorm)) {
+                return item.toResult()
+            }
+            for (alias in item.aliases) {
+                val aliasNorm = normalizeForMatch(alias)
+                if (qNorm == aliasNorm || qNorm.contains(aliasNorm) || aliasNorm.contains(qNorm)) {
+                    return item.toResult()
+                }
             }
         }
         return null
+    }
+
+    private fun normalizeForMatch(text: String): String {
+        return text.lowercase()
+            .replace('ı', 'i')
+            .replace("i̇", "i")
+            .replace('ğ', 'g')
+            .replace('ü', 'u')
+            .replace('ş', 's')
+            .replace('ö', 'o')
+            .replace('ç', 'c')
+            .replace("[^a-z0-9 ]".toRegex(), " ")
+            .trim()
+            .replace("\\s+".toRegex(), " ")
     }
 
     private data class LandmarkEntry(
@@ -376,14 +410,26 @@ class GeocodingService(private val context: Context? = null) {
         val lng: Double,
         val summary: String,
         val tasks: List<String>
-    )
+    ) {
+        fun toResult() = PlaceSearchResult(
+            placeName = officialName,
+            category = category,
+            address = address,
+            latitude = lat,
+            longitude = lng,
+            summary = summary,
+            suggestedTasks = tasks,
+            mapsUrl = "https://maps.google.com/?q=$lat,$lng",
+            isGrounded = true
+        )
+    }
 
     companion object {
         private const val TAG = "GeocodingService"
 
         private val LANDMARKS = listOf(
             LandmarkEntry(
-                aliases = listOf("anıtkabir", "anitkabir", "atatürk anıtkabir"),
+                aliases = listOf("anıtkabir", "anitkabir", "atatürk anıtkabir", "ataturk anitkabir"),
                 officialName = "Anıtkabir",
                 category = "Tiyatro / Kültür",
                 address = "Anıt Cad. Tandoğan, Çankaya / Ankara",
@@ -393,7 +439,7 @@ class GeocodingService(private val context: Context? = null) {
                 tasks = listOf("Müze bölümünü ziyaret et", "Tören alanını ve nöbet değişimini incele")
             ),
             LandmarkEntry(
-                aliases = listOf("süreyya", "sureyya", "süreyya operası", "süreyya tiyatrosu"),
+                aliases = listOf("süreyya", "sureyya", "süreyya operası", "sureyya operasi", "süreyya tiyatrosu"),
                 officialName = "Kadıköy Süreyya Tiyatrosu",
                 category = "Tiyatro / Kültür",
                 address = "Bahariye Cad. No:29, Kadıköy / İstanbul",
@@ -403,7 +449,7 @@ class GeocodingService(private val context: Context? = null) {
                 tasks = listOf("Gişeden cuma günkü rezerve biletleri teslim al", "Etkinlik başlamadan 20 dk önce salonda ol")
             ),
             LandmarkEntry(
-                aliases = listOf("kadıköy iskele", "kadikoy iskele", "kadıköy vapur iskelesi"),
+                aliases = listOf("kadıköy iskele", "kadikoy iskele", "kadıköy vapur iskelesi", "kadikoy rihtim"),
                 officialName = "Kadıköy Vapur İskelesi",
                 category = "Diğer",
                 address = "Rıhtım Cad., Kadıköy / İstanbul",
@@ -413,7 +459,7 @@ class GeocodingService(private val context: Context? = null) {
                 tasks = listOf("Vapur kalkış saatini kontrol et", "İstanbulkart bakiyesini doldur")
             ),
             LandmarkEntry(
-                aliases = listOf("kadıköy boğa", "boga heykeli", "kadikoy boga"),
+                aliases = listOf("kadıköy boğa", "kadikoy boga", "boga heykeli", "kadıköy altıyol boğa"),
                 officialName = "Kadıköy Boğa Heykeli",
                 category = "Diğer",
                 address = "Altıyol Meydanı, Kadıköy / İstanbul",
@@ -423,7 +469,17 @@ class GeocodingService(private val context: Context? = null) {
                 tasks = listOf("Buluşma noktasına zamanında var", "Çevredeki kitapçıları gez")
             ),
             LandmarkEntry(
-                aliases = listOf("ayasofya", "hagia sophia", "ayasofya camii"),
+                aliases = listOf("moda sahili", "kadıköy moda", "moda parkı", "moda iskelesi"),
+                officialName = "Kadıköy Moda Sahili & Parkı",
+                category = "Park",
+                address = "Moda Cad., Kadıköy / İstanbul",
+                lat = 40.9840,
+                lng = 29.0250,
+                summary = "Moda Burnu, çay bahçeleri ve tarihi Moda İskelesi.",
+                tasks = listOf("Sahilde yürüyüş yap", "Moda İskelesi'nde mola ver")
+            ),
+            LandmarkEntry(
+                aliases = listOf("ayasofya", "hagia sophia", "ayasofya camii", "ayasofya-i kebir"),
                 officialName = "Ayasofya-i Kebir Cami-i Şerifi",
                 category = "Tiyatro / Kültür",
                 address = "Sultanahmet Meydanı, Fatih / İstanbul",
@@ -453,7 +509,7 @@ class GeocodingService(private val context: Context? = null) {
                 tasks = listOf("Seyir terasından panaromik şehir fotoğrafı çek", "Karaköy yönüne yürüyüş yap")
             ),
             LandmarkEntry(
-                aliases = listOf("taksim", "taksim meydanı", "taksim meydani", "istiklal caddesi"),
+                aliases = listOf("taksim", "taksim meydanı", "taksim meydani", "istiklal caddesi", "taksim gezi"),
                 officialName = "Taksim Meydanı & İstiklal Caddesi",
                 category = "Diğer",
                 address = "Gümüşsuyu, Beyoğlu / İstanbul",
@@ -463,17 +519,87 @@ class GeocodingService(private val context: Context? = null) {
                 tasks = listOf("Cumhuriyet Anıtı önünde buluş", "Tarihi tramvay güzergahını takip et")
             ),
             LandmarkEntry(
-                aliases = listOf("emirgan", "emirgan parkı", "emirgan korusu"),
+                aliases = listOf("beşiktaş meydanı", "besiktas meydani", "beşiktaş çarşı", "besiktas carsi", "beşiktaş iskele"),
+                officialName = "Beşiktaş Meydanı & Çarşı",
+                category = "Market",
+                address = "Sinanpaşa, Beşiktaş / İstanbul",
+                lat = 41.0425,
+                lng = 29.0068,
+                summary = "Beşiktaş İskelesi, Barbaros Hayrettin Paşa Türbesi ve hareketli çarşı bölgesi.",
+                tasks = listOf("Çarşı içinde alışveriş yap", "İskele kafesinde mola ver")
+            ),
+            LandmarkEntry(
+                aliases = listOf("üsküdar meydanı", "uskudar meydani", "üsküdar iskele", "kız kulesi", "kiz kulesi"),
+                officialName = "Üsküdar Meydanı & Kız Kulesi Sahili",
+                category = "Tiyatro / Kültür",
+                address = "Mimar Sinan, Üsküdar / İstanbul",
+                lat = 41.0264,
+                lng = 29.0150,
+                summary = "Tarihi camiler, Marmaray istasyonu ve Kız Kulesi manzaralı sahil şeridi.",
+                tasks = listOf("Kız Kulesi manzaralı bankta otur", "Marmaray aktarmasını kullan")
+            ),
+            LandmarkEntry(
+                aliases = listOf("eminönü meydanı", "eminonu meydani", "mısır çarşısı", "misir carsisi", "yeni cami"),
+                officialName = "Eminönü Meydanı & Mısır Çarşısı",
+                category = "Market",
+                address = "Rüstem Paşa, Fatih / İstanbul",
+                lat = 41.0175,
+                lng = 28.9705,
+                summary = "Tarihi Mısır Çarşısı, balık ekmek tekneleri ve Galata Köprüsü ayağı.",
+                tasks = listOf("Mısır Çarşısı'ndan baharat al", "Galata Köprüsü üzerinden yürü")
+            ),
+            LandmarkEntry(
+                aliases = listOf("kapalıçarşı", "kapalicarsi", "grand bazaar"),
+                officialName = "Tarihi Kapalıçarşı",
+                category = "Market",
+                address = "Beyazıt, Fatih / İstanbul",
+                lat = 41.0107,
+                lng = 28.9680,
+                summary = "Dünyanın en eski ve en büyük kapalı çarşılarından biri.",
+                tasks = listOf("Kapalıçarşı esnafından hediyelik eşya al", "Geleneksel kahvehanede mola ver")
+            ),
+            LandmarkEntry(
+                aliases = listOf("topkapı sarayı", "topkapi sarayi", "topkapi palace"),
+                officialName = "Topkapı Sarayı Müzesi",
+                category = "Tiyatro / Kültür",
+                address = "Cankurtaran, Fatih / İstanbul",
+                lat = 41.0115,
+                lng = 28.9833,
+                summary = "Osmanlı padişahlarının 400 yıl ikamet ettiği tarihi saray kompleksi.",
+                tasks = listOf("Harem ve Kutsal Emanetler dairesini gez", "Gülhane Parkı'na geç")
+            ),
+            LandmarkEntry(
+                aliases = listOf("dolmabahçe sarayı", "dolmabahce sarayi", "dolmabahce palace"),
+                officialName = "Dolmabahçe Sarayı",
+                category = "Tiyatro / Kültür",
+                address = "Vişnezade, Dolmabahçe Cd., Beşiktaş / İstanbul",
+                lat = 41.0392,
+                lng = 29.0003,
+                summary = "Boğaz kıyısında neobarok ve ampir mimarili tarihi saray ve saat kulesi.",
+                tasks = listOf("Saray bahçesinde gezinti yap", "Saat kulesi önünde fotoğraf çek")
+            ),
+            LandmarkEntry(
+                aliases = listOf("ortaköy", "ortakoy", "ortaköy camii", "büyük mecidiyeköy camii"),
+                officialName = "Ortaköy Meydanı & Camii",
+                category = "Kafe / Restoran",
+                address = "Ortaköy Meydanı, Beşiktaş / İstanbul",
+                lat = 41.0474,
+                lng = 29.0270,
+                summary = "Boğaziçi Köprüsü altında tarihi Ortaköy Camii, kumpir ve kafeler meydanı.",
+                tasks = listOf("Kumpir veya waffle molası ver", "Boğaz manzaralı kafede dinlen")
+            ),
+            LandmarkEntry(
+                aliases = listOf("emirgan", "emirgan parkı", "emirgan korusu", "sarı köşk"),
                 officialName = "Emirgan Parkı & Korusu",
                 category = "Park",
-                address = "Reşitpaşa, Emirgan Korusunu İçi Yolu, Sarıyer / İstanbul",
+                address = "Reşitpaşa, Sarıyer / İstanbul",
                 lat = 41.1084,
                 lng = 29.0543,
                 summary = "Lale bahçeleri, sarı ve pembe köşkleri barındıran geniş yeşil koru.",
                 tasks = listOf("Gölet etrafında 30 dk tempolu yürüyüş yap", "Sarı Köşk'te mola ver")
             ),
             LandmarkEntry(
-                aliases = listOf("maslak plaza", "maslak iş kuleleri", "maslak"),
+                aliases = listOf("maslak plaza", "maslak iş kuleleri", "maslak", "maslak itü"),
                 officialName = "Maslak İş Kuleleri & Plaza",
                 category = "İşyeri",
                 address = "Büyükdere Cad. No:140, Maslak / Sarıyer",
@@ -483,8 +609,38 @@ class GeocodingService(private val context: Context? = null) {
                 tasks = listOf("Toplantı odasında çeyrek dönem sunumunu imzalat", "Ziyaretçi kaydı yaptır")
             ),
             LandmarkEntry(
-                aliases = listOf("kızılay", "kizilay", "kızılay meydanı", "ankara kızılay"),
-                officialName = "Kızılay Meydanı",
+                aliases = listOf("levent", "levent çarşı", "kanyon", "metrocity", "özdilek"),
+                officialName = "Levent Kanyon & İş Merkezi",
+                category = "İşyeri",
+                address = "Büyükdere Cad. No:185, Levent / Şişli",
+                lat = 41.0778,
+                lng = 29.0118,
+                summary = "Finans merkezleri, Kanyon AVM ve metro aktarma merkezi.",
+                tasks = listOf("İş görüşmesini tamamla", "AVM'de alışveriş yap")
+            ),
+            LandmarkEntry(
+                aliases = listOf("zorlu center", "zorlu", "zorlu avm", "zorlu psm"),
+                officialName = "Zorlu Center & PSM",
+                category = "Market",
+                address = "Levazım, Koru Sokağı No:2, Beşiktaş / İstanbul",
+                lat = 41.0667,
+                lng = 29.0175,
+                summary = "Lüks alışveriş merkezi ve performans sanatları merkezi (PSM).",
+                tasks = listOf("Etkinlik biletini kontrol et", "Mağazaları gez")
+            ),
+            LandmarkEntry(
+                aliases = listOf("cevahir", "cevahir avm", "mecidiyeköy cevahir"),
+                officialName = "Mecidiyeköy Cevahir AVM",
+                category = "Market",
+                address = "Büyükdere Cad. No:22, Şişli / İstanbul",
+                lat = 41.0628,
+                lng = 28.9892,
+                summary = "Avrupa'nın en büyük alışveriş ve eğlence merkezlerinden biri.",
+                tasks = listOf("Elektronik ve giyim alışverişini yap", "Metro çıkışında buluş")
+            ),
+            LandmarkEntry(
+                aliases = listOf("kızılay", "kizilay", "kızılay meydanı", "ankara kızılay", "güvenpark"),
+                officialName = "Kızılay Meydanı & Güvenpark",
                 category = "Diğer",
                 address = "Kızılay, Çankaya / Ankara",
                 lat = 39.9208,
@@ -493,8 +649,38 @@ class GeocodingService(private val context: Context? = null) {
                 tasks = listOf("Merkez noktada evrakları teslim al", "Metro aktarma istasyonunu kullan")
             ),
             LandmarkEntry(
-                aliases = listOf("konak saat kulesi", "izmir saat kulesi", "konak meydanı"),
-                officialName = "İzmir Konak Saat Kulesi",
+                aliases = listOf("tunalı", "tunali", "tunalı hilmi", "kuğulu park", "kugulu park"),
+                officialName = "Tunalı Hilmi Caddesi & Kuğulu Park",
+                category = "Park",
+                address = "Kavaklıdere, Çankaya / Ankara",
+                lat = 39.9056,
+                lng = 32.8606,
+                summary = "Ankara'nın popüler alışveriş caddesi ve kuğularıyla ünlü şehir parkı.",
+                tasks = listOf("Kuğulu Park'ta dinlen", "Tunalı Caddesi'nde kitapçıları gez")
+            ),
+            LandmarkEntry(
+                aliases = listOf("atakule", "ankara atakule", "çankaya atakule"),
+                officialName = "Atakule Seyir Kulesi & AVM",
+                category = "Diğer",
+                address = "Çankaya Cd. No:1, Çankaya / Ankara",
+                lat = 39.8858,
+                lng = 32.8558,
+                summary = "Ankara'nın simge döner kulesi, Botanik Parkı komşusu.",
+                tasks = listOf("Seyir terasından Ankara manzarasını izle", "Botanik Parkı'nda yürü")
+            ),
+            LandmarkEntry(
+                aliases = listOf("ankara kalesi", "kale ankara", "altındağ kale"),
+                officialName = "Tarihi Ankara Kalesi",
+                category = "Tiyatro / Kültür",
+                address = "Kale Mah., Altındağ / Ankara",
+                lat = 39.9419,
+                lng = 32.8644,
+                summary = "Antik Roma ve Osmanlı izlerini taşıyan tarihi kale ve geleneksel dükkanlar.",
+                tasks = listOf("Surlardan panoramik fotoğraf çek", "Geleneksel hanları gez")
+            ),
+            LandmarkEntry(
+                aliases = listOf("konak saat kulesi", "izmir saat kulesi", "konak meydanı", "izmir konak"),
+                officialName = "İzmir Konak Saat Kulesi & Meydanı",
                 category = "Tiyatro / Kültür",
                 address = "Konak Meydanı, Konak / İzmir",
                 lat = 38.4189,
@@ -503,7 +689,7 @@ class GeocodingService(private val context: Context? = null) {
                 tasks = listOf("Saat kulesi önünde buluş", "Kordon boyunda yürüyüş yap")
             ),
             LandmarkEntry(
-                aliases = listOf("kordon", "izmir kordon", "alsancak kordon"),
+                aliases = listOf("kordon", "izmir kordon", "alsancak kordon", "gündoğdu meydanı"),
                 officialName = "İzmir Alsancak Kordon Sahili",
                 category = "Park",
                 address = "Atatürk Cad. Alsancak, Konak / İzmir",
@@ -511,6 +697,26 @@ class GeocodingService(private val context: Context? = null) {
                 lng = 27.1394,
                 summary = "İzmir Körfezi boyunca uzanan çim alanlar ve sahil şeridi.",
                 tasks = listOf("Sahilde bisiklet sür veya yürüyüş yap", "Gündoğdu Meydanı'nda mola ver")
+            ),
+            LandmarkEntry(
+                aliases = listOf("kemeraltı", "kemeralti", "kemeraltı çarşısı", "izmir kemeraltı"),
+                officialName = "Tarihi Kemeraltı Çarşısı",
+                category = "Market",
+                address = "Konak, İzmir",
+                lat = 38.4172,
+                lng = 27.1333,
+                summary = "Kızlarağası Hanı, tarihi camiler ve yüzlerce yıllık çarşı sokakları.",
+                tasks = listOf("Kızlarağası Hanı'nda kumda kahve iç", "Çarşıdan yöresel ürünler al")
+            ),
+            LandmarkEntry(
+                aliases = listOf("karşıyaka", "karsiyaka", "karşıyaka çarşı", "karşıyaka iskele"),
+                officialName = "Karşıyaka İskelesi & Çarşı",
+                category = "Diğer",
+                address = "Cemal Gürsel Cd., Karşıyaka / İzmir",
+                lat = 38.4560,
+                lng = 27.1120,
+                summary = "Karşıyaka vapur iskelesi ve araç trafiğine kapalı hareketli çarşı caddesi.",
+                tasks = listOf("Çarşı boyunca yürüyüş yap", "Vapur ile Konak'a geç")
             ),
             LandmarkEntry(
                 aliases = listOf("eskişehir gar", "eskisehir tren gari", "eskişehir yht garı"),
@@ -541,6 +747,36 @@ class GeocodingService(private val context: Context? = null) {
                 lng = 29.0614,
                 summary = "Erken dönem Osmanlı mimarisinin 20 kubbeli şaheseri ve tarihi şadırvanı.",
                 tasks = listOf("Tarihi hat levhalarını incele", "Kapalıçarşı bölgesini ziyaret et")
+            ),
+            LandmarkEntry(
+                aliases = listOf("kaleiçi", "kaleici", "antalya kaleiçi", "hadrian kapısı", "üçkapılar"),
+                officialName = "Antalya Tarihi Kaleiçi & Üçkapılar",
+                category = "Tiyatro / Kültür",
+                address = "Kaleiçi, Muratpaşa / Antalya",
+                lat = 36.8841,
+                lng = 30.7056,
+                summary = "Roma dönemi Hadrian Kapısı (Üçkapılar), tarihi konaklar ve yat limanı.",
+                tasks = listOf("Yat limanına inen sokaklarda yürü", "Tarihi surları incele")
+            ),
+            LandmarkEntry(
+                aliases = listOf("mevlana", "mevlana müzesi", "konya mevlana"),
+                officialName = "Konya Mevlana Müzesi & Türbesi",
+                category = "Tiyatro / Kültür",
+                address = "Aziziye Mah. Mevlana Cd. No:1, Karatay / Konya",
+                lat = 37.8706,
+                lng = 32.5050,
+                summary = "Mevlana Celaleddin-i Rumi'nin türbesi ve müze kompleksi.",
+                tasks = listOf("Müze sergi alanını gez", "Mevlevi kültürünü tanı")
+            ),
+            LandmarkEntry(
+                aliases = listOf("trabzon meydan", "trabzon atatürk alanı", "meydan parkı trabzon"),
+                officialName = "Trabzon Meydan Parkı & Atatürk Alanı",
+                category = "Park",
+                address = "İskenderpaşa, Ortahisar / Trabzon",
+                lat = 41.0050,
+                lng = 39.7269,
+                summary = "Trabzon şehir merkezinin ana meydanı, çay bahçeleri ve tarihi binaları.",
+                tasks = listOf("Meydan çay bahçesinde mola ver", "Uzun Sokak boyunca yürü")
             )
         )
     }

@@ -98,4 +98,36 @@ class ExampleRobolectricTest {
     assertTrue(enMsg.contains("Unknown Place"))
     assertTrue(enMsg.contains("could not be found"))
   }
+
+  @Test
+  fun `verify geocoding service resolves actual place coordinates and not user location`() = kotlinx.coroutines.runBlocking {
+    val service = com.example.location.GeocodingService()
+
+    // Test Taksim resolution
+    val taksimResult = service.searchPlace("Taksim Meydanı", userLatitude = 40.9915, userLongitude = 29.0275)
+    assertTrue("Taksim should be found", taksimResult.isSuccess)
+    val taksim = taksimResult.getOrThrow().first()
+    assertEquals("Taksim Meydanı & İstiklal Caddesi", taksim.placeName)
+    // Coordinates should be Taksim's (approx 41.0370, 28.9850), NOT user location (40.9915, 29.0275)
+    assertEquals(41.0370, taksim.latitude, 0.005)
+    assertEquals(28.9850, taksim.longitude, 0.005)
+
+    // Test Anıtkabir resolution
+    val anitkabirResult = service.searchPlace("Anıtkabir", userLatitude = 41.0082, userLongitude = 28.9784)
+    assertTrue("Anıtkabir should be found", anitkabirResult.isSuccess)
+    val anitkabir = anitkabirResult.getOrThrow().first()
+    assertEquals("Anıtkabir", anitkabir.placeName)
+    // Coordinates should be Ankara (approx 39.9250, 32.8369), NOT Istanbul user location
+    assertEquals(39.92505, anitkabir.latitude, 0.005)
+    assertEquals(32.83695, anitkabir.longitude, 0.005)
+  }
+
+  @Test
+  fun `verify geocoding service returns failure when place is not found`() = kotlinx.coroutines.runBlocking {
+    val service = com.example.location.GeocodingService()
+    val unknownResult = service.searchPlace("XYZ998877_Olmayan_Hayali_Mekan_12345", userLatitude = 40.9915, userLongitude = 29.0275)
+    assertTrue("Unknown place must return failure", unknownResult.isFailure)
+    val ex = unknownResult.exceptionOrNull()
+    assertTrue(ex is com.example.location.PlaceNotFoundException)
+  }
 }

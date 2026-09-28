@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 data class MainUiState(
     val tasks: List<TaskLocationEntity> = emptyList(),
@@ -332,6 +333,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedTask.value = task
     }
 
+    fun selectTaskById(taskId: Long, showMap: Boolean = false) {
+        viewModelScope.launch {
+            val task = repository.getTaskById(taskId)
+            if (task != null) {
+                _selectedTask.value = task
+                _routeTargetTask.value = task
+                if (showMap) {
+                    _activeTab.value = NavigationTab.MAP
+                    _showNearbyTaskAlert.value = true
+                }
+            }
+        }
+    }
+
     fun clearSelectedTask() {
         _selectedTask.value = null
     }
@@ -490,9 +505,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             var finalAddress = address
             var finalPlaceInfo = geminiPlaceInfo
 
-            // If it's a new task and location has NOT been explicitly verified/chosen on map:
+            // If location has NOT been explicitly verified/chosen on map, or place name changed:
             // Attempt to resolve the real-world coordinates of the entered place name first!
-            if (existing == null && !isLocationExplicitlySet && placeName.isNotBlank()) {
+            val shouldResolvePlace = (!isLocationExplicitlySet && placeName.isNotBlank()) ||
+                    (existing != null && placeName.isNotBlank() && placeName != existing.placeName && !isLocationExplicitlySet)
+
+            if (shouldResolvePlace) {
                 val searchResult = geminiService.searchPlaceWithMapsGrounding(
                     query = placeName,
                     userLatitude = uiState.value.currentUserLocation?.latitude,
@@ -555,6 +573,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             _searchError.value = null
             closeAddEditSheet()
+        }
+    }
+
+    /**
+     * Directly adds a task from the Home Screen when place information is entered.
+     * Resolves the real-world coordinates of the place.
+     * If found, sets the found place's real coordinates in the data.
+     * If NOT found, provides an error message and NEVER sets the user's current location.
+     */
+    fun addPlaceFromHomeScreen(
+        placeQuery: String,
+        optionalTitle: String? = null,
+        onSuccess: (() -> Unit)? = null
+    ) {
+        val clean = placeQuery.trim()
+        if (clean.isBlank()) return
+        viewModelScope.launch {
+            _isSearchingPlace.value = true
+            _searchError.value = null
+            val userLoc = uiState.value.currentUserLocation
+            val searchResult = geminiService.searchPlaceWithMapsGrounding(
+                query = clean,
+                userLatitude = userLoc?.latitude,
+                userLongitude = userLoc?.longitude
+            )
+
+            if (searchResult.isSuccess) {
+                val place = searchResult.getOrThrow()
+                val currentDeviceType = syncManager.syncState.value.deviceType
+                val taskTitle = optionalTitle?.ifBlank { place.placeName } ?: place.placeName
+                val taskDesc = place.suggestedTasks.firstOrNull() ?: "${place.placeName} konumundaki görevi tamamla"
+
+                val newTask = TaskLocationEntity(
+                    title = taskTitle,
+                    description = taskDesc,
+                    priority = "HIGH",
+                    placeName = place.placeName,
+                    category = place.category,
+                    latitude = place.latitude,
+                    longitude = place.longitude,
+                    address = place.address,
+                    taskDescription = taskDesc,
+                    radiusMeters = 150,
+                    deviceOrigin = currentDeviceType,
+                    geminiPlaceInfo = place.summary
+                )
+
+                val id = repository.addTask(newTask)
+                val savedTask = newTask.copy(id = id)
+                _selectedTask.value = savedTask
+                _routeTargetTask.value = savedTask
+                _showNearbyTaskAlert.value = true
+                val strings = LocalizationManager.getStrings(_language.value)
+                _simulatedArrivalMessage.value = "✅ ${place.placeName} konumu eklendi! (${String.format(Locale.US, "%.4f", place.latitude)}, ${String.format(Locale.US, "%.4f", place.longitude)})"
+                _searchError.value = null
+                _isSearchingPlace.value = false
+                onSuccess?.invoke()
+            } else {
+                // If not found, show error message to the user! Never substitute current user location!
+                val strings = LocalizationManager.getStrings(_language.value)
+                _searchError.value = strings.placeNotFoundMessage(clean)
+                _isSearchingPlace.value = false
+            }
         }
     }
 

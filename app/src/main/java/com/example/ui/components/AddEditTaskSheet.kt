@@ -24,7 +24,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -120,6 +123,30 @@ fun AddEditTaskSheet(
     var geminiPlaceInfo by remember { mutableStateOf(taskToEdit?.geminiPlaceInfo) }
     var isLocationExplicitlySet by remember { mutableStateOf(taskToEdit != null) }
     var lastResolvedPlaceName by remember { mutableStateOf(taskToEdit?.placeName ?: "") }
+
+    // Auto-update coordinates and address when a place search succeeds
+    LaunchedEffect(searchResults) {
+        if (searchResults.isNotEmpty()) {
+            val first = searchResults.first()
+            latitude = first.latitude
+            longitude = first.longitude
+            address = first.address
+            lastResolvedPlaceName = first.placeName
+            isLocationExplicitlySet = true
+            if (geminiPlaceInfo.isNullOrBlank()) {
+                geminiPlaceInfo = first.summary
+            }
+            if (title.isBlank()) {
+                title = first.placeName
+            }
+        }
+    }
+
+    LaunchedEffect(searchError) {
+        if (!searchError.isNullOrBlank()) {
+            isLocationExplicitlySet = false
+        }
+    }
 
     val categories = listOf("İşyeri", "Park", "Tiyatro / Kültür", "Market", "Kafe / Restoran", "Diğer")
     val radiusOptions = listOf(50, 100, 250, 500)
@@ -478,23 +505,40 @@ fun AddEditTaskSheet(
                     onClearSearchError()
                 },
                 label = { Text("Konum / Yer Adı *") },
-                placeholder = { Text("Örn: Kadıköy Süreyya Tiyatrosu") },
+                placeholder = { Text("Örn: Kadıköy Süreyya Tiyatrosu, Anıtkabir...") },
                 trailingIcon = {
-                    if (placeName.isNotBlank()) {
-                        IconButton(
-                            onClick = {
-                                onSearchPlace(placeName)
-                            },
-                            modifier = Modifier.testTag("btn_find_place_location")
-                        ) {
-                            Icon(
-                                Icons.Default.LocationSearching,
-                                contentDescription = "Konumu Bul",
-                                tint = MaterialTheme.colorScheme.primary
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        if (isSearchingPlace) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
                             )
+                        } else if (placeName.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    onSearchPlace(placeName)
+                                },
+                                modifier = Modifier.testTag("btn_find_place_location")
+                            ) {
+                                Icon(
+                                    Icons.Default.LocationSearching,
+                                    contentDescription = "Konumu Bul",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                 },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = {
+                    if (placeName.isNotBlank() && !isSearchingPlace) {
+                        onSearchPlace(placeName)
+                    }
+                }),
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("place_name_input"),

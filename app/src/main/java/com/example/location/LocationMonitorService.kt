@@ -1,14 +1,18 @@
 package com.example.location
 
 import android.annotation.SuppressLint
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.location.Location
+import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.example.data.AppDatabase
 import com.example.data.TaskRepository
@@ -49,10 +53,28 @@ class LocationMonitorService : Service() {
         when (action) {
             ACTION_STOP -> {
                 stopTracking()
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 _isServiceRunning.value = false
                 return START_NOT_STICKY
+            }
+            ACTION_COMPLETE_TASK -> {
+                val taskId = intent?.getLongExtra(EXTRA_TASK_ID, -1L) ?: -1L
+                if (taskId != -1L) {
+                    serviceScope.launch {
+                        val task = repository.getTaskById(taskId)
+                        if (task != null && !task.isCompleted) {
+                            repository.toggleCompleted(task)
+                            val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+                            notificationManager.cancel((2000 + taskId).toInt())
+
+                            // Update foreground notification status with new active tasks count
+                            _currentLocation.value?.let { loc ->
+                                checkTasksProximity(loc)
+                            }
+                        }
+                    }
+                }
             }
             ACTION_SIMULATE_ARRIVAL -> {
                 val taskId = intent?.getLongExtra(EXTRA_TASK_ID, -1L) ?: -1L
@@ -60,17 +82,24 @@ class LocationMonitorService : Service() {
                     serviceScope.launch {
                         val task = repository.getTaskById(taskId)
                         if (task != null) {
-                            NotificationHelper.showArrivalNotification(this@LocationMonitorService, task)
+                            NotificationHelper.showArrivalNotification(this@LocationMonitorService, task, 0)
                             repository.markAsNotified(task.id)
                         }
                     }
                 }
             }
             ACTION_START -> {
-                startForeground(
-                    NotificationHelper.NOTIFICATION_ID_SERVICE,
-                    NotificationHelper.buildForegroundNotification(this, 0)
-                )
+                val notification = NotificationHelper.buildForegroundNotification(this, 0)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ServiceCompat.startForeground(
+                        this,
+                        NotificationHelper.NOTIFICATION_ID_SERVICE,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                    )
+                } else {
+                    startForeground(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
+                }
                 _isServiceRunning.value = true
                 startTracking()
             }
@@ -95,9 +124,10 @@ class LocationMonitorService : Service() {
             return
         }
 
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000L)
-            .setMinUpdateIntervalMillis(5000L)
-            .setMinUpdateDistanceMeters(10f)
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L)
+            .setMinUpdateIntervalMillis(3000L)
+            .setMinUpdateDistanceMeters(5f)
+            .setWaitForAccurateLocation(false)
             .build()
 
         locationCallback = object : LocationCallback() {
@@ -117,7 +147,7 @@ class LocationMonitorService : Service() {
                 )
             }
 
-            // Explicit 10-second timer to ensure positions are compared every 10 seconds
+            // Continuous proximity check loop every 10 seconds to ensure prompt evaluation
             serviceScope.launch {
                 while (isActive) {
                     delay(10000L)
@@ -135,7 +165,8 @@ class LocationMonitorService : Service() {
         serviceScope.launch {
             try {
                 val activeTasks = repository.getActiveTasksList()
-                var newlyNotified = 0
+                var nearestTaskName: String? = null
+                var nearestDistance: Float? = null
 
                 for (task in activeTasks) {
                     val distance = LocationHelper.calculateDistanceMeters(
@@ -145,27 +176,38 @@ class LocationMonitorService : Service() {
                         task.longitude
                     )
 
+                    if (nearestDistance == null || distance < nearestDistance) {
+                        nearestDistance = distance
+                        nearestTaskName = task.displayTitle
+                    }
+
                     // If user is within task's geofence radius
                     if (distance <= task.radiusMeters) {
                         val currentTime = System.currentTimeMillis()
-                        // Avoid spamming notification if notified within last 10 minutes
-                        val isRecent = task.lastNotifiedAt?.let { (currentTime - it) < 600_000L } ?: false
+                        // Avoid duplicate spam: allow re-notification after 5 minutes
+                        val isRecent = task.lastNotifiedAt?.let { (currentTime - it) < 300_000L } ?: false
 
                         if (!task.isNotificationTriggered || !isRecent) {
-                            NotificationHelper.showArrivalNotification(this@LocationMonitorService, task)
+                            NotificationHelper.showArrivalNotification(
+                                context = this@LocationMonitorService,
+                                task = task,
+                                distanceMeters = distance.toInt()
+                            )
                             repository.markAsNotified(task.id)
-                            newlyNotified++
                         }
                     }
                 }
 
-                // Update notification text with active task count
-                val notification = NotificationHelper.buildForegroundNotification(
-                    this@LocationMonitorService,
-                    activeTasks.size
+                // Update the high-priority foreground notification with live coordinates and nearest task info
+                val updatedNotification = NotificationHelper.buildForegroundNotification(
+                    context = this@LocationMonitorService,
+                    activeTaskCount = activeTasks.size,
+                    currentLocation = userLocation,
+                    nearestTaskName = nearestTaskName,
+                    nearestTaskDistanceMeters = nearestDistance?.toInt()
                 )
-                val notificationManager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-                notificationManager.notify(NotificationHelper.NOTIFICATION_ID_SERVICE, notification)
+                val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(NotificationHelper.NOTIFICATION_ID_SERVICE, updatedNotification)
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking task proximity", e)
@@ -194,6 +236,7 @@ class LocationMonitorService : Service() {
         const val ACTION_START = "com.example.action.START_MONITORING"
         const val ACTION_STOP = "com.example.action.STOP_MONITORING"
         const val ACTION_SIMULATE_ARRIVAL = "com.example.action.SIMULATE_ARRIVAL"
+        const val ACTION_COMPLETE_TASK = "com.example.action.COMPLETE_TASK"
         const val EXTRA_TASK_ID = "EXTRA_TASK_ID"
 
         private val _isServiceRunning = MutableStateFlow(false)

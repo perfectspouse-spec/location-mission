@@ -45,7 +45,8 @@ class GreetingScreenshotTest {
           onToggleComplete = {},
           onEdit = {},
           onDelete = {},
-          onSimulateArrival = {}
+          onSimulateArrival = {},
+          onShowRoute = {}
         )
       }
     }

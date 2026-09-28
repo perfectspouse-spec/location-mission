@@ -35,12 +35,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddLocationAlt
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tablet
@@ -51,6 +55,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -391,6 +400,55 @@ private fun TabletDualPaneLayout(
                         .testTag("tablet_search_bar"),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
+                )
+
+                // Search query fallback to add as location
+                AnimatedVisibility(visible = uiState.searchQuery.isNotBlank() && uiState.filteredTasks.isEmpty()) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.addPlaceFromHomeScreen(uiState.searchQuery)
+                                viewModel.setSearchQuery("")
+                            }
+                            .padding(vertical = 4.dp)
+                            .testTag("tablet_add_search_query_as_place")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.AddLocationAlt,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "'${uiState.searchQuery}' konumunu bul ve ekle",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Direct Quick Add Place Card on Tablet Home Screen
+                HomeScreenQuickAddPlaceCard(
+                    isSearchingPlace = uiState.isSearchingPlace,
+                    searchError = uiState.searchError,
+                    onClearError = { viewModel.clearSearchError() },
+                    onAddPlace = { query ->
+                        viewModel.addPlaceFromHomeScreen(query)
+                    },
+                    modifier = Modifier.padding(bottom = 6.dp)
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -743,6 +801,17 @@ private fun PhoneSinglePaneLayout(
                             }
                         }
 
+                        // Direct Quick Add Place Card on Phone Home Screen
+                        HomeScreenQuickAddPlaceCard(
+                            isSearchingPlace = uiState.isSearchingPlace,
+                            searchError = uiState.searchError,
+                            onClearError = { viewModel.clearSearchError() },
+                            onAddPlace = { query ->
+                                viewModel.addPlaceFromHomeScreen(query)
+                            },
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+
                         // Search bar
                         OutlinedTextField(
                             value = uiState.searchQuery,
@@ -755,6 +824,42 @@ private fun PhoneSinglePaneLayout(
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp)
                         )
+
+                        // Search query fallback to add as location
+                        AnimatedVisibility(visible = uiState.searchQuery.isNotBlank() && uiState.filteredTasks.isEmpty()) {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.addPlaceFromHomeScreen(uiState.searchQuery)
+                                        viewModel.setSearchQuery("")
+                                    }
+                                    .padding(vertical = 4.dp)
+                                    .testTag("phone_add_search_query_as_place")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.AddLocationAlt,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "'${uiState.searchQuery}' konumunu bul ve ekle",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -978,6 +1083,167 @@ fun CategoryFilterRow(
                 label = { Text(cat, fontSize = 12.sp) },
                 shape = RoundedCornerShape(10.dp)
             )
+        }
+    }
+}
+
+/**
+ * Direct Location / Place entry component on Home Screen.
+ * Resolves place to its actual geographic coordinates, or notifies the user with an error message if not found.
+ */
+@Composable
+private fun HomeScreenQuickAddPlaceCard(
+    isSearchingPlace: Boolean,
+    searchError: String?,
+    onClearError: () -> Unit,
+    onAddPlace: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var placeInput by remember { mutableStateOf("") }
+
+    ElevatedCard(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("home_quick_add_card")
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    Icons.Default.AddLocationAlt,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Konum / Yer Bilgisi Ekle",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = placeInput,
+                    onValueChange = {
+                        placeInput = it
+                        if (searchError != null) onClearError()
+                    },
+                    placeholder = { Text("Eklenmek istenen yer (Örn: Anıtkabir, Taksim...)") },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Place,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    trailingIcon = {
+                        if (placeInput.isNotBlank()) {
+                            IconButton(onClick = {
+                                placeInput = ""
+                                if (searchError != null) onClearError()
+                            }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Clear, contentDescription = "Temizle", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("quick_add_place_input"),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (placeInput.isNotBlank() && !isSearchingPlace) {
+                            onAddPlace(placeInput)
+                            placeInput = ""
+                        }
+                    })
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Button(
+                    onClick = {
+                        if (placeInput.isNotBlank() && !isSearchingPlace) {
+                            onAddPlace(placeInput)
+                            placeInput = ""
+                        }
+                    },
+                    enabled = placeInput.isNotBlank() && !isSearchingPlace,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .height(54.dp)
+                        .testTag("quick_add_place_button")
+                ) {
+                    if (isSearchingPlace) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Ekle", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // Prominent inline error notice if place could not be found
+            if (!searchError.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("home_place_not_found_alert")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = searchError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = onClearError, modifier = Modifier.size(22.dp)) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Kapat",
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
