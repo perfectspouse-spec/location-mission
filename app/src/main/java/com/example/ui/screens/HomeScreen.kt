@@ -5,10 +5,13 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,20 +34,28 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddLocationAlt
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LocationOff
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.PinDrop
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tablet
@@ -56,7 +67,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
@@ -86,6 +102,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
@@ -98,13 +115,16 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.TaskLocationEntity
+import com.example.gemini.PlaceSearchResult
+import com.example.location.LocationHelper
+import com.example.location.MapIntentHelper
+import java.util.Locale
 import com.example.ui.MainUiState
 import com.example.ui.MainViewModel
 import com.example.ui.NavigationTab
 import com.example.ui.components.AddEditTaskSheet
 import com.example.ui.components.ArchiveContent
 import com.example.ui.components.EmptyTasksView
-import com.example.ui.components.InteractiveMapCanvas
 import com.example.ui.components.SettingsDialog
 import com.example.ui.components.SyncSheet
 import com.example.ui.components.TaskCard
@@ -152,6 +172,12 @@ fun HomeScreen(
                 neededPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
             }
             permissionLauncher.launch(neededPermissions.toTypedArray())
+        }
+    }
+
+    LaunchedEffect(hasLocationPermission) {
+        if (!hasLocationPermission && uiState.isLocationServiceRunning) {
+            viewModel.stopLocationService()
         }
     }
 
@@ -224,7 +250,8 @@ fun HomeScreen(
             },
             onDismiss = { viewModel.closeAddEditSheet() },
             currentUserLat = uiState.currentUserLocation?.latitude,
-            currentUserLng = uiState.currentUserLocation?.longitude
+            currentUserLng = uiState.currentUserLocation?.longitude,
+            initialNewTaskPlace = uiState.initialNewTaskPlace
         )
     }
 
@@ -311,29 +338,6 @@ private fun TabletDualPaneLayout(
                         Icon(Icons.Default.Settings, contentDescription = strings.settings)
                     }
 
-                    // Multi-Device Sync Button
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier
-                            .clickable { viewModel.openSyncSheet() }
-                            .padding(horizontal = 6.dp)
-                            .testTag("tablet_sync_button")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "${uiState.syncState.syncRoomCode}",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-
                     // Background 10s Tracking Switch
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -350,7 +354,13 @@ private fun TabletDualPaneLayout(
                         Spacer(modifier = Modifier.width(6.dp))
                         Switch(
                             checked = uiState.isLocationServiceRunning,
-                            onCheckedChange = { viewModel.toggleLocationService() },
+                            onCheckedChange = {
+                                if (it && !hasLocationPermission) {
+                                    onRequestPermissions()
+                                } else {
+                                    viewModel.toggleLocationService(hasLocationPermission)
+                                }
+                            },
                             modifier = Modifier.testTag("service_toggle_tablet")
                         )
                     }
@@ -364,7 +374,7 @@ private fun TabletDualPaneLayout(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // LEFT PANE (Master: Tasks List, Filters, Enter Key Banner, Search)
+            // LEFT PANE (Master: Tasks List, Filters, Enter Key Banner)
             Column(
                 modifier = Modifier
                     .width(420.dp)
@@ -389,78 +399,14 @@ private fun TabletDualPaneLayout(
                     }
                 }
 
-                // Search Bar
-                OutlinedTextField(
-                    value = uiState.searchQuery,
-                    onValueChange = { viewModel.setSearchQuery(it) },
-                    placeholder = { Text(strings.searchPlaceholder) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("tablet_search_bar"),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                // Search query fallback to add as location
-                AnimatedVisibility(visible = uiState.searchQuery.isNotBlank() && uiState.filteredTasks.isEmpty()) {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                viewModel.addPlaceFromHomeScreen(uiState.searchQuery)
-                                viewModel.setSearchQuery("")
-                            }
-                            .padding(vertical = 4.dp)
-                            .testTag("tablet_add_search_query_as_place")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.AddLocationAlt,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "'${uiState.searchQuery}' konumunu bul ve ekle",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Direct Quick Add Place Card on Tablet Home Screen
-                HomeScreenQuickAddPlaceCard(
-                    isSearchingPlace = uiState.isSearchingPlace,
-                    searchError = uiState.searchError,
-                    onClearError = { viewModel.clearSearchError() },
-                    onAddPlace = { query ->
-                        viewModel.addPlaceFromHomeScreen(query)
-                    },
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Category Filter Chips
-                CategoryFilterRow(
+                // Category Filter Dropdown (ComboBox)
+                CategoryFilterDropdown(
                     selectedCategory = uiState.selectedCategory,
                     onCategorySelected = { viewModel.selectCategory(it) },
                     filterAllLabel = strings.filterAll
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Tab Switch: Active vs Archive
                 Row(
@@ -493,10 +439,7 @@ private fun TabletDualPaneLayout(
                         onCategorySelected = { viewModel.selectCategory(it) },
                         onRestoreTask = { viewModel.restoreTask(it) },
                         onDeleteTask = { viewModel.deleteTask(it) },
-                        onClearArchive = { viewModel.clearArchive() },
-                        onViewOnMap = { task ->
-                            viewModel.selectTask(task)
-                        }
+                        onClearArchive = { viewModel.clearArchive() }
                     )
                 } else {
                     // Action Bar: Add Task Button + Task Count
@@ -512,17 +455,19 @@ private fun TabletDualPaneLayout(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        ExtendedFloatingActionButton(
-                            onClick = { viewModel.openAddTask() },
-                            icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                            text = { Text(strings.addNewTask) },
-                            modifier = Modifier
-                                .height(40.dp)
-                                .testTag("add_task_fab"),
-                            shape = RoundedCornerShape(12.dp),
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        )
+                        if (uiState.tasks.isNotEmpty()) {
+                            ExtendedFloatingActionButton(
+                                onClick = { viewModel.openAddTask() },
+                                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                                text = { Text(strings.addNewTask) },
+                                modifier = Modifier
+                                    .height(40.dp)
+                                    .testTag("add_task_fab"),
+                                shape = RoundedCornerShape(12.dp),
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -531,10 +476,7 @@ private fun TabletDualPaneLayout(
                     if (uiState.filteredTasks.isEmpty()) {
                         EmptyTasksView(
                             strings = strings,
-                            onAddNewTask = { viewModel.openAddTask() },
-                            onAddSampleTask = { title, desc, prio, place, cat, lat, lng ->
-                                viewModel.addSampleTask(title, desc, prio, place, cat, lat, lng)
-                            }
+                            onAddNewTask = { viewModel.openAddTask() }
                         )
                     } else {
                         LazyColumn(
@@ -552,8 +494,7 @@ private fun TabletDualPaneLayout(
                                     onToggleComplete = { viewModel.toggleTaskComplete(task) },
                                     onEdit = { viewModel.openEditTask(task) },
                                     onDelete = { viewModel.deleteTask(task) },
-                                    onSimulateArrival = { viewModel.simulateArrival(task) },
-                                    onShowRoute = { viewModel.showRouteForTask(task) }
+                                    onSimulateArrival = { viewModel.simulateArrival(task) }
                                 )
                             }
                         }
@@ -561,31 +502,378 @@ private fun TabletDualPaneLayout(
                 }
             }
 
-            // RIGHT PANE (Detail: Interactive Map View)
+            // RIGHT PANE (Detail: Task Information & Overview Dashboard)
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .padding(8.dp)
             ) {
-                InteractiveMapCanvas(
-                    tasks = uiState.filteredTasks,
+                TabletTaskDetailPane(
                     selectedTask = uiState.selectedTask,
-                    onTaskSelected = { viewModel.selectTask(it) },
-                    onMapTappedCoordinates = { lat, lng ->
-                        viewModel.openAddTask()
-                    },
-                    onSimulateArrival = { viewModel.simulateArrival(it) },
-                    currentUserLocation = uiState.currentUserLocation,
-                    proximityThresholdMeters = uiState.proximityThresholdMeters,
-                    nearbyTasks = uiState.nearbyTasksWithinThreshold,
-                    routeTargetTask = uiState.routeTargetTask,
-                    showNearbyAlert = uiState.showNearbyTaskAlert,
-                    onDismissNearbyAlert = { viewModel.dismissNearbyTaskAlert() },
-                    onSelectRouteTask = { viewModel.setRouteTargetTask(it) },
+                    uiState = uiState,
                     strings = strings,
+                    viewModel = viewModel,
                     modifier = Modifier.fillMaxSize()
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Detail and Overview Pane for Tablet dual-pane layout.
+ * Replaces the map section with a polished, accessible task details / summary dashboard.
+ */
+@Composable
+private fun TabletTaskDetailPane(
+    selectedTask: TaskLocationEntity?,
+    uiState: MainUiState,
+    strings: LocalizedStrings,
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    if (selectedTask != null) {
+        // Detailed View of Selected Task
+        Card(
+            modifier = modifier.fillMaxSize(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = selectedTask.title,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selectedTask.isCompleted) Color(0xFF2E7D32).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                            ) {
+                                Text(
+                                    text = if (selectedTask.isCompleted) "✓ Tamamlandı" else "● Aktif Görev",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selectedTask.isCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                            ) {
+                                Text(
+                                    text = selectedTask.category,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.clearSelectedTask() },
+                        modifier = Modifier.testTag("btn_close_detail_pane")
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Kapat")
+                    }
+                }
+
+                // Description Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Görev Açıklaması",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = selectedTask.displayDescription,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                // Location Details Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Konum Bilgileri",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = selectedTask.placeName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        if (selectedTask.address.isNotBlank()) {
+                            Text(
+                                text = selectedTask.address,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = "Koordinatlar: ${String.format(Locale.US, "%.5f", selectedTask.latitude)}, ${String.format(Locale.US, "%.5f", selectedTask.longitude)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Text(
+                            text = "Varış Bildirim Yarıçapı: ${selectedTask.radiusMeters} metre",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+
+                        // Distance to user if location available
+                        uiState.currentUserLocation?.let { loc ->
+                            val distance = LocationHelper.calculateDistanceMeters(
+                                loc.latitude, loc.longitude,
+                                selectedTask.latitude, selectedTask.longitude
+                            )
+                            val isNear = distance <= selectedTask.radiusMeters
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isNear) Color(0xFF2E7D32).copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Text(
+                                    text = if (isNear) "Menzil içindesiniz! (${distance.toInt()} m)" else "Uzaklık: ${if (distance >= 1000) String.format(Locale.US, "%.1f km", distance / 1000) else "${distance.toInt()} m"}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isNear) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Place notes if available
+                if (!selectedTask.geminiPlaceInfo.isNullOrBlank()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Konum Notu",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = selectedTask.geminiPlaceInfo,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // Actions Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { viewModel.toggleTaskComplete(selectedTask) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(if (selectedTask.isCompleted) "Geri Al" else "Tamamla")
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.openEditTask(selectedTask) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Düzenle")
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.simulateArrival(selectedTask) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Varışı Test Et")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.deleteTask(selectedTask)
+                            viewModel.clearSelectedTask()
+                        },
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Sil", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    } else {
+        // No Task Selected: Overview & Stats Dashboard
+        Card(
+            modifier = modifier.fillMaxSize(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                Text(
+                    text = "Görev ve Konum Özeti",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Soldaki listeden bir görev seçerek detaylarını inceleyebilir veya yeni görev ekleyebilirsiniz.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Metric Cards Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Toplam Görev", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("${uiState.tasks.size}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Aktif Görevler", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("${uiState.totalActiveCount}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Arşivlenmiş", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("${uiState.totalCompletedCount}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                        }
+                    }
+                }
+
+                // Device Sync Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.CloudSync,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Çoklu Cihaz Senkronizasyonu", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Text("Oda Kodu: ${uiState.syncState.syncRoomCode} • Cihaz: ${uiState.syncState.deviceType}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.openSyncSheet() },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Yönet")
+                        }
+                    }
+                }
+
+                // Quick Add Task Button
+                Button(
+                    onClick = { viewModel.openAddTask() },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Yeni Görev Ekle", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -635,18 +923,16 @@ private fun PhoneSinglePaneLayout(
                         Icon(Icons.Default.Settings, contentDescription = strings.settings)
                     }
 
-                    // Sync icon button
-                    IconButton(
-                        onClick = { viewModel.openSyncSheet() },
-                        modifier = Modifier.testTag("sync_sheet_button")
-                    ) {
-                        Icon(Icons.Default.CloudSync, contentDescription = "Senkronizasyon", tint = MaterialTheme.colorScheme.primary)
-                    }
-
                     // Background tracking toggle
                     Switch(
                         checked = uiState.isLocationServiceRunning,
-                        onCheckedChange = { viewModel.toggleLocationService() },
+                        onCheckedChange = {
+                            if (it && !hasLocationPermission) {
+                                onRequestPermissions()
+                            } else {
+                                viewModel.toggleLocationService(hasLocationPermission)
+                            }
+                        },
                         modifier = Modifier
                             .padding(end = 8.dp)
                             .testTag("service_toggle")
@@ -680,13 +966,6 @@ private fun PhoneSinglePaneLayout(
                     modifier = Modifier.testTag("tab_tasks")
                 )
                 NavigationBarItem(
-                    selected = uiState.activeTab == NavigationTab.MAP,
-                    onClick = { viewModel.setActiveTab(NavigationTab.MAP) },
-                    icon = { Icon(Icons.Default.Map, contentDescription = strings.tabMap) },
-                    label = { Text(strings.tabMap) },
-                    modifier = Modifier.testTag("tab_map")
-                )
-                NavigationBarItem(
                     selected = uiState.activeTab == NavigationTab.ARCHIVE,
                     onClick = { viewModel.setActiveTab(NavigationTab.ARCHIVE) },
                     icon = {
@@ -713,7 +992,7 @@ private fun PhoneSinglePaneLayout(
             }
         },
         floatingActionButton = {
-            if (uiState.activeTab != NavigationTab.ARCHIVE) {
+            if (uiState.activeTab != NavigationTab.ARCHIVE && uiState.tasks.isNotEmpty()) {
                 FloatingActionButton(
                     onClick = { viewModel.openAddTask() },
                     modifier = Modifier.testTag("add_task_fab"),
@@ -757,27 +1036,6 @@ private fun PhoneSinglePaneLayout(
 
             // Screen Content Based on Active Tab
             when (uiState.activeTab) {
-                NavigationTab.MAP -> {
-                    InteractiveMapCanvas(
-                        tasks = uiState.filteredTasks,
-                        selectedTask = uiState.selectedTask,
-                        onTaskSelected = { viewModel.selectTask(it) },
-                        onMapTappedCoordinates = { lat, lng ->
-                            viewModel.openAddTask()
-                        },
-                        onSimulateArrival = { viewModel.simulateArrival(it) },
-                        currentUserLocation = uiState.currentUserLocation,
-                        proximityThresholdMeters = uiState.proximityThresholdMeters,
-                        nearbyTasks = uiState.nearbyTasksWithinThreshold,
-                        routeTargetTask = uiState.routeTargetTask,
-                        showNearbyAlert = uiState.showNearbyTaskAlert,
-                        onDismissNearbyAlert = { viewModel.dismissNearbyTaskAlert() },
-                        onSelectRouteTask = { viewModel.setRouteTargetTask(it) },
-                        strings = strings,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
                 NavigationTab.TASKS -> {
                     Column(
                         modifier = Modifier
@@ -801,69 +1059,8 @@ private fun PhoneSinglePaneLayout(
                             }
                         }
 
-                        // Direct Quick Add Place Card on Phone Home Screen
-                        HomeScreenQuickAddPlaceCard(
-                            isSearchingPlace = uiState.isSearchingPlace,
-                            searchError = uiState.searchError,
-                            onClearError = { viewModel.clearSearchError() },
-                            onAddPlace = { query ->
-                                viewModel.addPlaceFromHomeScreen(query)
-                            },
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-
-                        // Search bar
-                        OutlinedTextField(
-                            value = uiState.searchQuery,
-                            onValueChange = { viewModel.setSearchQuery(it) },
-                            placeholder = { Text(strings.searchPlaceholder) },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("search_tasks_input"),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        // Search query fallback to add as location
-                        AnimatedVisibility(visible = uiState.searchQuery.isNotBlank() && uiState.filteredTasks.isEmpty()) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        viewModel.addPlaceFromHomeScreen(uiState.searchQuery)
-                                        viewModel.setSearchQuery("")
-                                    }
-                                    .padding(vertical = 4.dp)
-                                    .testTag("phone_add_search_query_as_place")
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Default.AddLocationAlt,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "'${uiState.searchQuery}' konumunu bul ve ekle",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        CategoryFilterRow(
+                        // Category Filter Dropdown (ComboBox)
+                        CategoryFilterDropdown(
                             selectedCategory = uiState.selectedCategory,
                             onCategorySelected = { viewModel.selectCategory(it) },
                             filterAllLabel = strings.filterAll
@@ -875,10 +1072,7 @@ private fun PhoneSinglePaneLayout(
                         if (uiState.filteredTasks.isEmpty()) {
                             EmptyTasksView(
                                 strings = strings,
-                                onAddNewTask = { viewModel.openAddTask() },
-                                onAddSampleTask = { title, desc, prio, place, cat, lat, lng ->
-                                    viewModel.addSampleTask(title, desc, prio, place, cat, lat, lng)
-                                }
+                                onAddNewTask = { viewModel.openAddTask() }
                             )
                         } else {
                             LazyColumn(
@@ -896,8 +1090,7 @@ private fun PhoneSinglePaneLayout(
                                         onToggleComplete = { viewModel.toggleTaskComplete(task) },
                                         onEdit = { viewModel.openEditTask(task) },
                                         onDelete = { viewModel.deleteTask(task) },
-                                        onSimulateArrival = { viewModel.simulateArrival(task) },
-                                        onShowRoute = { viewModel.showRouteForTask(task) }
+                                        onSimulateArrival = { viewModel.simulateArrival(task) }
                                     )
                                 }
                             }
@@ -917,16 +1110,15 @@ private fun PhoneSinglePaneLayout(
                         onCategorySelected = { viewModel.selectCategory(it) },
                         onRestoreTask = { viewModel.restoreTask(it) },
                         onDeleteTask = { viewModel.deleteTask(it) },
-                        onClearArchive = { viewModel.clearArchive() },
-                        onViewOnMap = { task ->
-                            viewModel.selectTask(task)
-                            viewModel.setActiveTab(NavigationTab.MAP)
-                        }
+                        onClearArchive = { viewModel.clearArchive() }
                     )
                 }
 
                 NavigationTab.SYNC -> {
-                    // Handled by modal sheet or tab
+                    LaunchedEffect(Unit) {
+                        viewModel.openSyncSheet()
+                        viewModel.setActiveTab(NavigationTab.TASKS)
+                    }
                 }
             }
         }
@@ -1062,6 +1254,80 @@ private fun SelectedTaskEnterBanner(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CategoryFilterDropdown(
+    selectedCategory: String,
+    onCategorySelected: (String) -> Unit,
+    filterAllLabel: String = "Tümü",
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val categories = listOf(filterAllLabel, "İşyeri", "Park", "Tiyatro / Kültür", "Market", "Kafe / Restoran", "Diğer")
+    val displayCategory = if (selectedCategory.isBlank() || selectedCategory == "All") filterAllLabel else selectedCategory
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier.fillMaxWidth()
+    ) {
+        OutlinedTextField(
+            value = displayCategory,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Kategori Filtresi") },
+            leadingIcon = {
+                Icon(
+                    Icons.Default.FilterAlt,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+            },
+            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+            modifier = Modifier
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth()
+                .testTag("category_filter_combo_box"),
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            categories.forEach { category ->
+                val isSelected = selectedCategory == category || (category == filterAllLabel && (selectedCategory == "Tümü" || selectedCategory == "All"))
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = category,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    leadingIcon = {
+                        if (isSelected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    },
+                    onClick = {
+                        onCategorySelected(category)
+                        expanded = false
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun CategoryFilterRow(
     selectedCategory: String,
@@ -1088,159 +1354,233 @@ fun CategoryFilterRow(
 }
 
 /**
- * Direct Location / Place entry component on Home Screen.
- * Resolves place to its actual geographic coordinates, or notifies the user with an error message if not found.
+ * HomeScreenPlaceInputSection removed as map/search options are removed from HomeScreen.
  */
 @Composable
-private fun HomeScreenQuickAddPlaceCard(
-    isSearchingPlace: Boolean,
-    searchError: String?,
-    onClearError: () -> Unit,
-    onAddPlace: (String) -> Unit,
+private fun HomeScreenPlaceInputSection(
     modifier: Modifier = Modifier
 ) {
-    var placeInput by remember { mutableStateOf("") }
+}
 
-    ElevatedCard(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
-        ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .testTag("home_quick_add_card")
+            .testTag("home_place_input_section")
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(
-                    Icons.Default.AddLocationAlt,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+        // 1. Single-line input field above the list
+        OutlinedTextField(
+            value = placeInput,
+            onValueChange = {
+                placeInput = it
+                if (searchError != null) onClearError()
+            },
+            placeholder = {
                 Text(
-                    text = "Konum / Yer Bilgisi Ekle",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    text = "Yer ara veya konumu yaz... (Örn: Kadıköy, Taksim)",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedTextField(
-                    value = placeInput,
-                    onValueChange = {
-                        placeInput = it
-                        if (searchError != null) onClearError()
-                    },
-                    placeholder = { Text("Eklenmek istenen yer (Örn: Anıtkabir, Taksim...)") },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Place,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    trailingIcon = {
-                        if (placeInput.isNotBlank()) {
-                            IconButton(onClick = {
-                                placeInput = ""
-                                if (searchError != null) onClearError()
-                            }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Clear, contentDescription = "Temizle", modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("quick_add_place_input"),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = {
-                        if (placeInput.isNotBlank() && !isSearchingPlace) {
-                            onAddPlace(placeInput)
-                            placeInput = ""
-                        }
-                    })
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Place,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
                 )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Button(
-                    onClick = {
-                        if (placeInput.isNotBlank() && !isSearchingPlace) {
-                            onAddPlace(placeInput)
-                            placeInput = ""
-                        }
-                    },
-                    enabled = placeInput.isNotBlank() && !isSearchingPlace,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .height(54.dp)
-                        .testTag("quick_add_place_button")
-                ) {
+            },
+            trailingIcon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     if (isSearchingPlace) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier
+                                .size(20.dp)
+                                .padding(end = 4.dp),
                             strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
+                            color = MaterialTheme.colorScheme.primary
                         )
-                    } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Ekle", fontWeight = FontWeight.Bold)
+                    } else if (placeInput.isNotBlank()) {
+                        IconButton(
+                            onClick = {
+                                placeInput = ""
+                                onClearSearchedPlace()
+                                onClearError()
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Default.Clear, contentDescription = "Temizle", modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(
+                            onClick = { onSearchPlace(placeInput) },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("btn_search_place_home")
+                        ) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = "Ara",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = {
+                if (placeInput.isNotBlank() && !isSearchingPlace) {
+                    onSearchPlace(placeInput)
+                }
+            }),
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("home_place_single_line_input")
+        )
+
+        // 2. Line below it: Location information & "Görevi Ekle" button
+        AnimatedVisibility(
+            visible = searchedPlace != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            searchedPlace?.let { place ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .testTag("home_searched_place_info_row")
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PinDrop,
+                                contentDescription = null,
+                                tint = Color(0xFFEA4335),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = place.placeName,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Konum Doğrulandı",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "${place.address.ifBlank { "Doğrulanmış Konum" }} • (${String.format(Locale.US, "%.4f", place.latitude)}, ${String.format(Locale.US, "%.4f", place.longitude)})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            IconButton(
+                                onClick = onClearSearchedPlace,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Kapat", modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // "Görevi Ekle" button -> Opens "Yeni Görev Ekle" sheet with place prefilled
+                            Button(
+                                onClick = { onAddTaskWithPlace(place) },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .height(38.dp)
+                                    .testTag("btn_add_task_from_searched_place")
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Görevi Ekle", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
             }
+        }
 
-            // Prominent inline error notice if place could not be found
-            if (!searchError.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("home_place_not_found_alert")
+        // Searching state indicator below
+        if (isSearchingPlace && searchedPlace == null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, start = 4.dp)
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Konum aranıyor...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Error message below if place not found
+        if (!searchError.isNullOrBlank()) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+                    .testTag("home_search_error_banner")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Icon(
+                        Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = searchError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onClearError, modifier = Modifier.size(22.dp)) {
                         Icon(
-                            Icons.Default.ErrorOutline,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
+                            Icons.Default.Close,
+                            contentDescription = "Kapat",
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(14.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = searchError,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = onClearError, modifier = Modifier.size(22.dp)) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "Kapat",
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
                     }
                 }
             }

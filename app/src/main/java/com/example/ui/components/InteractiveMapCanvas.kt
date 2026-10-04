@@ -49,6 +49,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -77,9 +78,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import com.example.data.TaskLocationEntity
+import com.example.gemini.PlaceSearchResult
 import com.example.location.LocationHelper
+import com.example.location.MapIntentHelper
 import com.example.ui.localization.LocalizedStrings
 import kotlin.math.roundToInt
 
@@ -98,6 +103,9 @@ fun InteractiveMapCanvas(
     onDismissNearbyAlert: () -> Unit = {},
     onSelectRouteTask: (TaskLocationEntity) -> Unit = {},
     strings: LocalizedStrings? = null,
+    markedSearchedPlace: PlaceSearchResult? = null,
+    onClearMarkedPlace: (() -> Unit)? = null,
+    onAddTaskWithPlace: ((PlaceSearchResult) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -106,10 +114,16 @@ fun InteractiveMapCanvas(
     val userLat = currentUserLocation?.latitude ?: 40.9915
     val userLng = currentUserLocation?.longitude ?: 29.0275
 
-    // Reference center coordinates (Istanbul / Region focal point)
-    var centerLat by remember { mutableFloatStateOf(userLat.toFloat()) }
-    var centerLng by remember { mutableFloatStateOf(userLng.toFloat()) }
-    var zoomLevel by remember { mutableFloatStateOf(1.2f) }
+    // Reference center coordinates - prioritize marked searched place if available
+    var centerLat by remember(markedSearchedPlace?.latitude, markedSearchedPlace?.longitude) {
+        mutableFloatStateOf(markedSearchedPlace?.latitude?.toFloat() ?: userLat.toFloat())
+    }
+    var centerLng by remember(markedSearchedPlace?.latitude, markedSearchedPlace?.longitude) {
+        mutableFloatStateOf(markedSearchedPlace?.longitude?.toFloat() ?: userLng.toFloat())
+    }
+    var zoomLevel by remember(markedSearchedPlace?.latitude, markedSearchedPlace?.longitude) {
+        mutableFloatStateOf(if (markedSearchedPlace != null) 1.8f else 1.2f)
+    }
 
     // Active task for routing and display
     val activeRouteTarget = routeTargetTask ?: nearbyTasks.firstOrNull() ?: selectedTask
@@ -127,9 +141,9 @@ fun InteractiveMapCanvas(
         }
     }
 
-    // Auto-focus on route between user location and target task
-    LaunchedEffect(activeRouteTarget?.id) {
-        if (activeRouteTarget != null) {
+    // Auto-focus on route between user location and target task ONLY if no searched place is active
+    LaunchedEffect(activeRouteTarget?.id, markedSearchedPlace == null) {
+        if (activeRouteTarget != null && markedSearchedPlace == null) {
             centerLat = ((userLat + activeRouteTarget.latitude) / 2.0).toFloat()
             centerLng = ((userLng + activeRouteTarget.longitude) / 2.0).toFloat()
             val dist = LocationHelper.calculateDistanceMeters(userLat, userLng, activeRouteTarget.latitude, activeRouteTarget.longitude)
@@ -139,6 +153,15 @@ fun InteractiveMapCanvas(
                 dist < 3000 -> 1.1f
                 else -> 0.9f
             }
+        }
+    }
+
+    // Auto-focus on marked searched place when user searches a place
+    LaunchedEffect(markedSearchedPlace) {
+        if (markedSearchedPlace != null) {
+            centerLat = markedSearchedPlace.latitude.toFloat()
+            centerLng = markedSearchedPlace.longitude.toFloat()
+            zoomLevel = 1.8f
         }
     }
 
@@ -353,6 +376,134 @@ fun InteractiveMapCanvas(
                 radius = 3.5f,
                 center = Offset(userX, userY)
             )
+
+            // 7. Draw Marked Searched Place from Google Maps
+            if (markedSearchedPlace != null) {
+                val placeX = ((markedSearchedPlace.longitude.toFloat() - minLng) / lngSpan) * width
+                val placeY = ((maxLat - markedSearchedPlace.latitude.toFloat()) / latSpan) * height
+
+                // Pulsing red radar ring
+                drawCircle(
+                    color = Color(0xFFEA4335).copy(alpha = 0.25f),
+                    radius = 36f * pulseRatio,
+                    center = Offset(placeX, placeY)
+                )
+                drawCircle(
+                    color = Color(0xFFEA4335).copy(alpha = 0.75f),
+                    radius = 36f * pulseRatio,
+                    center = Offset(placeX, placeY),
+                    style = Stroke(width = 2.5f)
+                )
+
+                // Outer white circle
+                drawCircle(
+                    color = Color.White,
+                    radius = 20f,
+                    center = Offset(placeX, placeY)
+                )
+                // Google Maps Red Pin core
+                drawCircle(
+                    color = Color(0xFFEA4335),
+                    radius = 16f,
+                    center = Offset(placeX, placeY)
+                )
+                // Inner white circle
+                drawCircle(
+                    color = Color.White,
+                    radius = 6f,
+                    center = Offset(placeX, placeY)
+                )
+            }
+        }
+
+        // Floating Banner for Marked Searched Place from Google Maps
+        if (markedSearchedPlace != null) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp, start = 72.dp, end = 72.dp)
+                    .testTag("map_marked_place_banner")
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Place,
+                            contentDescription = null,
+                            tint = Color(0xFFEA4335),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = markedSearchedPlace.placeName,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${markedSearchedPlace.address.ifBlank { "Google Maps" }} • (${String.format(java.util.Locale.US, "%.4f", markedSearchedPlace.latitude)}, ${String.format(java.util.Locale.US, "%.4f", markedSearchedPlace.longitude)})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFC62828),
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (onClearMarkedPlace != null) {
+                            IconButton(onClick = onClearMarkedPlace, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Kapat", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                MapIntentHelper.openLocationInGoogleMaps(
+                                    context = context,
+                                    latitude = markedSearchedPlace.latitude,
+                                    longitude = markedSearchedPlace.longitude,
+                                    placeName = markedSearchedPlace.placeName
+                                )
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Google Maps", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        if (onAddTaskWithPlace != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { onAddTaskWithPlace(markedSearchedPlace) },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Görevi Ekle", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Map Control Floating Buttons (Zoom In, Zoom Out, Center on Route)
@@ -877,19 +1028,10 @@ fun openGoogleMapsRoute(
 }
 
 private fun openGoogleMaps(context: Context, task: TaskLocationEntity) {
-    try {
-        val uri = Uri.parse("geo:${task.latitude},${task.longitude}?q=${task.latitude},${task.longitude}(${Uri.encode(task.placeName)})")
-        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-            setPackage("com.google.android.apps.maps")
-        }
-        if (intent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(intent)
-        } else {
-            val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${task.latitude},${task.longitude}")
-            context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
-        }
-    } catch (e: Exception) {
-        val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=${task.latitude},${task.longitude}")
-        context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
-    }
+    MapIntentHelper.openLocationInGoogleMaps(
+        context = context,
+        latitude = task.latitude,
+        longitude = task.longitude,
+        placeName = task.placeName
+    )
 }

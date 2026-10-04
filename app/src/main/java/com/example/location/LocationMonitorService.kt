@@ -121,6 +121,10 @@ class LocationMonitorService : Service() {
 
         if (!hasFine && !hasCoarse) {
             Log.w(TAG, "Location permissions not granted for background monitoring")
+            _isServiceRunning.value = false
+            stopTracking()
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
             return
         }
 

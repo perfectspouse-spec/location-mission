@@ -56,11 +56,12 @@ data class MainUiState(
     val proximityThresholdMeters: Int = 1000,
     val nearbyTasksWithinThreshold: List<TaskLocationEntity> = emptyList(),
     val routeTargetTask: TaskLocationEntity? = null,
-    val showNearbyTaskAlert: Boolean = true
+    val showNearbyTaskAlert: Boolean = true,
+    val homeSearchedPlace: PlaceSearchResult? = null,
+    val initialNewTaskPlace: PlaceSearchResult? = null
 )
 
 enum class NavigationTab {
-    MAP,
     TASKS,
     ARCHIVE,
     SYNC
@@ -111,6 +112,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _routeTargetTask = MutableStateFlow<TaskLocationEntity?>(null)
     private val _showNearbyTaskAlert = MutableStateFlow(true)
     private val _customUserLocation = MutableStateFlow<Location?>(null)
+    private val _homeSearchedPlace = MutableStateFlow<PlaceSearchResult?>(null)
+    private val _initialNewTaskPlace = MutableStateFlow<PlaceSearchResult?>(null)
 
     val uiState: StateFlow<MainUiState> = combine(
         repository.allTasks,
@@ -135,7 +138,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _routeTargetTask,
         _showNearbyTaskAlert,
         _customUserLocation,
-        _themeMode
+        _themeMode,
+        _homeSearchedPlace,
+        _initialNewTaskPlace
     ) { params ->
         @Suppress("UNCHECKED_CAST")
         val allTasks = params[0] as List<TaskLocationEntity>
@@ -161,6 +166,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val showAlert = params[20] as Boolean
         val customLoc = params[21] as? Location
         val theme = params[22] as AppThemeMode
+        val homePlace = params[23] as? PlaceSearchResult
+        val initNewPlace = params[24] as? PlaceSearchResult
 
         val effectiveUserLoc = userLoc ?: customLoc ?: defaultUserLocation
 
@@ -197,7 +204,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        val effectiveRouteTarget = routeTarget ?: if (tab == NavigationTab.MAP && nearbyTasks.isNotEmpty()) nearbyTasks.first() else selected
+        val effectiveRouteTarget = routeTarget ?: if (nearbyTasks.isNotEmpty()) nearbyTasks.first() else selected
 
         MainUiState(
             tasks = allTasks,
@@ -227,7 +234,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             proximityThresholdMeters = proximityThreshold,
             nearbyTasksWithinThreshold = nearbyTasks,
             routeTargetTask = effectiveRouteTarget,
-            showNearbyTaskAlert = showAlert
+            showNearbyTaskAlert = showAlert,
+            homeSearchedPlace = homePlace,
+            initialNewTaskPlace = initNewPlace
         )
     }.stateIn(
         scope = viewModelScope,
@@ -236,7 +245,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     init {
-        seedSampleTasksIfEmpty()
+        clearAnySampleTasks()
         startPeriodic10SecondCheck()
     }
 
@@ -249,74 +258,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun seedSampleTasksIfEmpty() {
+    private fun clearAnySampleTasks() {
         viewModelScope.launch {
+            val sampleTitles = setOf(
+                "Süreyya Operası Bilet Teslimi",
+                "Maslak Plaza Ofis Sunumu",
+                "Emirgan Korusu Yürüyüşü",
+                "Haftalık Organik Alışveriş",
+                "Tiyatro Biletleri Teslimi",
+                "İş Toplantı Evrakları",
+                "Park Yürüyüşü ve Mola",
+                "Haftalık Organik Pazar"
+            )
             val existing = repository.getAllTasksList()
-            if (existing.isEmpty()) {
-                val sample1 = TaskLocationEntity(
-                    title = "Süreyya Operası Bilet Teslimi",
-                    description = "Gişeden cuma günkü temsil için rezerve edilmiş tiyatro biletlerini al",
-                    priority = "HIGH",
-                    placeName = "Kadıköy Süreyya Tiyatrosu",
-                    category = "Tiyatro / Kültür",
-                    latitude = 40.9897,
-                    longitude = 29.0289,
-                    address = "Bahariye Cad. No:29, Kadıköy / İstanbul",
-                    taskDescription = "Gişeden cuma günkü temsil için rezerve edilmiş tiyatro biletlerini al",
-                    radiusMeters = 100,
-                    deviceOrigin = syncManager.syncState.value.deviceType,
-                    geminiPlaceInfo = "Google Haritalar: Tarihi opera binası. Temsilden en az 20 dakika önce kapıda olunması tavsiye edilir."
-                )
-
-                val sample2 = TaskLocationEntity(
-                    title = "Maslak Plaza Ofis Sunumu",
-                    description = "Toplantı odasında çeyrek dönem sunum belgelerini teslim et ve imzalat",
-                    priority = "HIGH",
-                    placeName = "Maslak İş Kuleleri",
-                    category = "İşyeri",
-                    latitude = 41.1118,
-                    longitude = 29.0211,
-                    address = "Büyükdere Cad. No:140, Maslak / Sarıyer",
-                    taskDescription = "Toplantı odasında çeyrek dönem sunum belgelerini teslim et ve imzalat",
-                    radiusMeters = 150,
-                    deviceOrigin = syncManager.syncState.value.deviceType,
-                    geminiPlaceInfo = "Google Haritalar: İş ve finans kuleleri bölgesi. Ziyaretçi otoparkı mevcuttur."
-                )
-
-                val sample3 = TaskLocationEntity(
-                    title = "Emirgan Korusu Yürüyüşü",
-                    description = "Göl etrafında 30 dakikalık doğa yürüyüşü yap ve Sarı Köşk'te mola ver",
-                    priority = "MEDIUM",
-                    placeName = "Emirgan Parkı & Korusu",
-                    category = "Park",
-                    latitude = 41.1084,
-                    longitude = 29.0543,
-                    address = "Reşitpaşa, Sarıyer / İstanbul",
-                    taskDescription = "Göl etrafında 30 dakikalık doğa yürüyüşü yap ve Sarı Köşk'te mola ver",
-                    radiusMeters = 200,
-                    deviceOrigin = syncManager.syncState.value.deviceType,
-                    geminiPlaceInfo = "Google Haritalar: Lale bahçeleri, gölet ve tarihi köşkler barındırır. Giriş serbesttir."
-                )
-
-                val sample4 = TaskLocationEntity(
-                    title = "Haftalık Organik Alışveriş",
-                    description = "Taze köy yumurtası, soğuk sıkım zeytinyağı ve taze mevsim sebzelerini al",
-                    priority = "LOW",
-                    placeName = "Kadıköy Tarihi Çarşı & Pazar",
-                    category = "Market",
-                    latitude = 40.9902,
-                    longitude = 29.0255,
-                    address = "Caferağa, Kadıköy / İstanbul",
-                    taskDescription = "Taze köy yumurtası, soğuk sıkım zeytinyağı ve taze mevsim sebzelerini al",
-                    radiusMeters = 100,
-                    deviceOrigin = syncManager.syncState.value.deviceType,
-                    geminiPlaceInfo = "Google Haritalar: Organik tezgahlar ve geleneksel dükkanlar mevcuttur."
-                )
-
-                repository.addTask(sample1)
-                repository.addTask(sample2)
-                repository.addTask(sample3)
-                repository.addTask(sample4)
+            existing.filter { it.title in sampleTitles }.forEach { task ->
+                repository.deleteTask(task)
             }
         }
     }
@@ -339,10 +295,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (task != null) {
                 _selectedTask.value = task
                 _routeTargetTask.value = task
-                if (showMap) {
-                    _activeTab.value = NavigationTab.MAP
-                    _showNearbyTaskAlert.value = true
-                }
             }
         }
     }
@@ -353,9 +305,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setActiveTab(tab: NavigationTab) {
         _activeTab.value = tab
-        if (tab == NavigationTab.MAP) {
-            _showNearbyTaskAlert.value = true
-        }
     }
 
     fun setProximityThreshold(meters: Int) {
@@ -373,8 +322,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun showRouteForTask(task: TaskLocationEntity) {
         _routeTargetTask.value = task
         _selectedTask.value = task
-        _activeTab.value = NavigationTab.MAP
-        _showNearbyTaskAlert.value = true
     }
 
     fun dismissNearbyTaskAlert() {
@@ -393,10 +340,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _customUserLocation.value = loc
     }
 
-    fun openAddTask() {
+    fun openAddTask(initialPlace: PlaceSearchResult? = null) {
         _taskToEdit.value = null
         _searchResults.value = emptyList()
         _searchError.value = null
+        _initialNewTaskPlace.value = initialPlace
         _isAddEditSheetOpen.value = true
     }
 
@@ -404,12 +352,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _taskToEdit.value = task
         _searchResults.value = emptyList()
         _searchError.value = null
+        _initialNewTaskPlace.value = null
         _isAddEditSheetOpen.value = true
     }
 
     fun closeAddEditSheet() {
         _isAddEditSheetOpen.value = false
         _taskToEdit.value = null
+        _initialNewTaskPlace.value = null
+    }
+
+    fun searchPlaceOnMap(query: String) {
+        val clean = query.trim()
+        if (clean.isBlank()) return
+        viewModelScope.launch {
+            _isSearchingPlace.value = true
+            _searchError.value = null
+            val userLoc = uiState.value.currentUserLocation
+            val searchResult = geminiService.searchPlaceWithMapsGrounding(
+                query = clean,
+                userLatitude = userLoc?.latitude,
+                userLongitude = userLoc?.longitude
+            )
+            if (searchResult.isSuccess) {
+                val place = searchResult.getOrThrow()
+                _homeSearchedPlace.value = place
+                _searchError.value = null
+            } else {
+                _homeSearchedPlace.value = null
+                val strings = LocalizationManager.getStrings(_language.value)
+                _searchError.value = strings.placeNotFoundMessage(clean)
+            }
+            _isSearchingPlace.value = false
+        }
+    }
+
+    fun clearHomeSearchedPlace() {
+        _homeSearchedPlace.value = null
+        _searchError.value = null
     }
 
     fun openSyncSheet() {
@@ -449,33 +429,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearArchive() {
         viewModelScope.launch {
             repository.clearCompletedTasks()
-        }
-    }
-
-    fun addSampleTask(
-        title: String,
-        desc: String,
-        priority: String,
-        place: String,
-        category: String,
-        lat: Double,
-        lng: Double
-    ) {
-        viewModelScope.launch {
-            val task = TaskLocationEntity(
-                title = title,
-                description = desc,
-                priority = priority,
-                placeName = place,
-                category = category,
-                latitude = lat,
-                longitude = lng,
-                taskDescription = desc,
-                radiusMeters = 150,
-                deviceOrigin = syncManager.syncState.value.deviceType
-            )
-            val id = repository.addTask(task)
-            _selectedTask.value = task.copy(id = id)
         }
     }
 
@@ -704,12 +657,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _simulatedArrivalMessage.value = null
     }
 
-    fun toggleLocationService() {
+    fun stopLocationService() {
+        val app = getApplication<Application>()
+        LocationMonitorService.stopService(app)
+    }
+
+    fun toggleLocationService(hasPermission: Boolean = true) {
         val app = getApplication<Application>()
         if (LocationMonitorService.isServiceRunning.value) {
             LocationMonitorService.stopService(app)
         } else {
-            LocationMonitorService.startService(app)
+            if (hasPermission) {
+                LocationMonitorService.startService(app)
+            } else {
+                LocationMonitorService.stopService(app)
+            }
         }
     }
 

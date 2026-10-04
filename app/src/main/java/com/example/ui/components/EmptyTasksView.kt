@@ -12,8 +12,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,12 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Business
-import androidx.compose.material.icons.filled.Celebration
-import androidx.compose.material.icons.filled.LocalFlorist
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.TheaterComedy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -38,8 +31,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,12 +48,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.localization.LocalizedStrings
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EmptyTasksView(
     strings: LocalizedStrings,
     onAddNewTask: () -> Unit,
-    onAddSampleTask: (title: String, desc: String, priority: String, place: String, category: String, lat: Double, lng: Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -180,87 +169,6 @@ fun EmptyTasksView(
                     text = strings.emptyAction,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Quick Starter Suggestions
-            Text(
-                text = "Hızlı Başlangıç Önerileri",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                SuggestionChip(
-                    onClick = {
-                        onAddSampleTask(
-                            "Tiyatro Biletleri Teslimi",
-                            "Gişeden rezerve tiyatro biletlerini teslim al",
-                            "HIGH",
-                            "Kadıköy Süreyya Tiyatrosu",
-                            "Tiyatro / Kültür",
-                            40.9897,
-                            29.0289
-                        )
-                    },
-                    label = { Text("🎭 Tiyatro Bileti (Yüksek)") },
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                SuggestionChip(
-                    onClick = {
-                        onAddSampleTask(
-                            "İş Toplantı Evrakları",
-                            "Proje belgelerini danışmaya teslim et ve imzalat",
-                            "HIGH",
-                            "Maslak Ofis Kuleleri",
-                            "İşyeri",
-                            41.1118,
-                            29.0211
-                        )
-                    },
-                    label = { Text("🏢 İş Maslak (Yüksek)") },
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                SuggestionChip(
-                    onClick = {
-                        onAddSampleTask(
-                            "Park Yürüyüşü ve Mola",
-                            "Göl kenarında 30 dk yürüyüş yap",
-                            "MEDIUM",
-                            "Emirgan Parkı & Korusu",
-                            "Park",
-                            41.1084,
-                            29.0543
-                        )
-                    },
-                    label = { Text("🌲 Emirgan Parkı (Orta)") },
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                SuggestionChip(
-                    onClick = {
-                        onAddSampleTask(
-                            "Haftalık Organik Pazar",
-                            "Taze meyve, zeytin ve peynir al",
-                            "LOW",
-                            "Kadıköy Çarşı Pazarı",
-                            "Market",
-                            40.9902,
-                            29.0255
-                        )
-                    },
-                    label = { Text("🛒 Çarşı & Pazar (Düşük)") },
-                    shape = RoundedCornerShape(12.dp)
                 )
             }
         }

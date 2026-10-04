@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.content.Intent
 import android.net.Uri
+import com.example.location.MapIntentHelper
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -321,22 +322,6 @@ fun TaskCard(
                                 modifier = Modifier.size(18.dp)
                             )
                         }
-                    }
-
-                    // Google Maps External Open
-                    IconButton(
-                        onClick = {
-                            val uri = Uri.parse("geo:${task.latitude},${task.longitude}?q=${task.latitude},${task.longitude}(${Uri.encode(task.placeName)})")
-                            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                        },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.OpenInNew,
-                            contentDescription = "Haritalarda Aç",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
                     }
 
                     // Edit

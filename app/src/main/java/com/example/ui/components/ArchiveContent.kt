@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.content.Intent
 import android.net.Uri
+import com.example.location.MapIntentHelper
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -87,7 +88,7 @@ fun ArchiveContent(
     onRestoreTask: (TaskLocationEntity) -> Unit,
     onDeleteTask: (TaskLocationEntity) -> Unit,
     onClearArchive: () -> Unit,
-    onViewOnMap: (TaskLocationEntity) -> Unit,
+    onViewOnMap: ((TaskLocationEntity) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -345,7 +346,7 @@ fun ArchiveContent(
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onDeleteTask(task)
                         },
-                        onViewOnMap = { onViewOnMap(task) }
+                        onViewOnMap = if (onViewOnMap != null) { { onViewOnMap.invoke(task) } } else null
                     )
                 }
             }
@@ -362,7 +363,7 @@ private fun ArchivedTaskCard(
     userLongitude: Double?,
     onRestore: () -> Unit,
     onDelete: () -> Unit,
-    onViewOnMap: () -> Unit,
+    onViewOnMap: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -386,7 +387,7 @@ private fun ArchivedTaskCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(
-                onClick = { onViewOnMap() },
+                onClick = { onViewOnMap?.invoke() },
                 onLongClick = {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onDelete()
@@ -532,23 +533,29 @@ private fun ArchivedTaskCard(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // View on internal map
-                    FilledTonalIconButton(
-                        onClick = onViewOnMap,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Map,
-                            contentDescription = strings.tabMap,
-                            modifier = Modifier.size(18.dp)
-                        )
+                    // View on internal map (optional)
+                    if (onViewOnMap != null) {
+                        FilledTonalIconButton(
+                            onClick = onViewOnMap,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Map,
+                                contentDescription = strings.tabMap,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
 
                     // External Google Maps
                     IconButton(
                         onClick = {
-                            val uri = Uri.parse("geo:${task.latitude},${task.longitude}?q=${task.latitude},${task.longitude}(${Uri.encode(task.placeName)})")
-                            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            MapIntentHelper.openLocationInGoogleMaps(
+                                context = context,
+                                latitude = task.latitude,
+                                longitude = task.longitude,
+                                placeName = task.placeName
+                            )
                         },
                         modifier = Modifier.size(36.dp)
                     ) {

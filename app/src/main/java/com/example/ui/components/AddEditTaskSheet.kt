@@ -1,7 +1,6 @@
 package com.example.ui.components
 
-import android.content.Intent
-import android.net.Uri
+import java.util.Locale
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,7 +28,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -104,25 +102,42 @@ fun AddEditTaskSheet(
     ) -> Unit,
     onDismiss: () -> Unit,
     currentUserLat: Double?,
-    currentUserLng: Double?
+    currentUserLng: Double?,
+    initialNewTaskPlace: PlaceSearchResult? = null
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var title by remember { mutableStateOf(taskToEdit?.title ?: "") }
-    var description by remember { mutableStateOf(taskToEdit?.displayDescription ?: "") }
-    var priority by remember { mutableStateOf(taskToEdit?.priority ?: "MEDIUM") }
-    var searchQuery by remember { mutableStateOf("") }
-    var placeName by remember { mutableStateOf(taskToEdit?.placeName ?: "") }
-    var category by remember { mutableStateOf(taskToEdit?.category ?: "İşyeri") }
-    var address by remember { mutableStateOf(taskToEdit?.address ?: "") }
-    var latitude by remember { mutableDoubleStateOf(taskToEdit?.latitude ?: (currentUserLat ?: 41.0082)) }
-    var longitude by remember { mutableDoubleStateOf(taskToEdit?.longitude ?: (currentUserLng ?: 28.9784)) }
-    var radiusMeters by remember { mutableIntStateOf(taskToEdit?.radiusMeters ?: 100) }
-    var geminiPlaceInfo by remember { mutableStateOf(taskToEdit?.geminiPlaceInfo) }
-    var isLocationExplicitlySet by remember { mutableStateOf(taskToEdit != null) }
-    var lastResolvedPlaceName by remember { mutableStateOf(taskToEdit?.placeName ?: "") }
+    var title by remember(taskToEdit?.id, initialNewTaskPlace) { mutableStateOf(taskToEdit?.title ?: initialNewTaskPlace?.placeName ?: "") }
+    var description by remember(taskToEdit?.id) { mutableStateOf(taskToEdit?.displayDescription ?: "") }
+    var priority by remember(taskToEdit?.id) { mutableStateOf(taskToEdit?.priority ?: "MEDIUM") }
+    var placeName by remember(taskToEdit?.id, initialNewTaskPlace) { mutableStateOf(taskToEdit?.placeName ?: initialNewTaskPlace?.placeName ?: "") }
+    var category by remember(taskToEdit?.id, initialNewTaskPlace) { mutableStateOf(taskToEdit?.category ?: initialNewTaskPlace?.category ?: "İşyeri") }
+    var address by remember(taskToEdit?.id, initialNewTaskPlace) { mutableStateOf(taskToEdit?.address ?: initialNewTaskPlace?.address ?: "") }
+    var latitude by remember(taskToEdit?.id, initialNewTaskPlace) { mutableDoubleStateOf(taskToEdit?.latitude ?: initialNewTaskPlace?.latitude ?: (currentUserLat ?: 41.0082)) }
+    var longitude by remember(taskToEdit?.id, initialNewTaskPlace) { mutableDoubleStateOf(taskToEdit?.longitude ?: initialNewTaskPlace?.longitude ?: (currentUserLng ?: 28.9784)) }
+    var radiusMeters by remember(taskToEdit?.id) { mutableIntStateOf(taskToEdit?.radiusMeters ?: 100) }
+    var geminiPlaceInfo by remember(taskToEdit?.id, initialNewTaskPlace) { mutableStateOf(taskToEdit?.geminiPlaceInfo ?: initialNewTaskPlace?.summary) }
+    var isLocationExplicitlySet by remember(taskToEdit?.id, initialNewTaskPlace) { mutableStateOf(taskToEdit != null || initialNewTaskPlace != null) }
+    var lastResolvedPlaceName by remember(taskToEdit?.id, initialNewTaskPlace) { mutableStateOf(taskToEdit?.placeName ?: initialNewTaskPlace?.placeName ?: "") }
+
+    LaunchedEffect(initialNewTaskPlace) {
+        if (initialNewTaskPlace != null && taskToEdit == null) {
+            placeName = initialNewTaskPlace.placeName
+            latitude = initialNewTaskPlace.latitude
+            longitude = initialNewTaskPlace.longitude
+            address = initialNewTaskPlace.address
+            lastResolvedPlaceName = initialNewTaskPlace.placeName
+            isLocationExplicitlySet = true
+            if (title.isBlank()) {
+                title = initialNewTaskPlace.placeName
+            }
+            if (geminiPlaceInfo.isNullOrBlank()) {
+                geminiPlaceInfo = initialNewTaskPlace.summary
+            }
+        }
+    }
 
     // Auto-update coordinates and address when a place search succeeds
     LaunchedEffect(searchResults) {
@@ -270,91 +285,46 @@ fun AddEditTaskSheet(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 4. Location Selection (Konum Seçimi)
+            // 4. Location Details (Konum Bilgileri)
             Text(
-                text = "Konum / Yer Seçimi *",
+                text = "Konum / Yer Bilgileri *",
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Search with Google Maps Grounding
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+            // Success badge when location is verified
+            if (isLocationExplicitlySet && lastResolvedPlaceName.isNotBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            Icons.Default.AutoAwesome,
+                            Icons.Default.CheckCircle,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Google Haritalar ile Otomatik Bul",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = {
-                                searchQuery = it
-                                onClearSearchError()
-                            },
-                            placeholder = { Text("Örn: Süreyya Operası, Emirgan Parkı...") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("place_search_input"),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
                         Spacer(modifier = Modifier.width(8.dp))
-
-                        Button(
-                            onClick = {
-                                val target = searchQuery.ifBlank { placeName }
-                                if (target.isNotBlank()) {
-                                    onSearchPlace(target)
-                                }
-                            },
-                            enabled = (searchQuery.isNotBlank() || placeName.isNotBlank()) && !isSearchingPlace,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.testTag("search_place_button")
-                        ) {
-                            if (isSearchingPlace) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onPrimary
-                                )
-                            } else {
-                                Icon(Icons.Default.Search, contentDescription = "Ara")
-                            }
-                        }
+                        Text(
+                            text = "Konum Doğrulandı: $lastResolvedPlaceName (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
             // Error Banner if place could not be found
             if (!searchError.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
@@ -389,11 +359,11 @@ fun AddEditTaskSheet(
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Show Search Results from Gemini Maps Grounding / Geocoding if available
+            // Show Search Results from Gemini / Geocoding if available
             if (searchResults.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -460,38 +430,8 @@ fun AddEditTaskSheet(
                         }
                     }
                 }
-            }
-
-            // Success badge when location is verified
-            if (isLocationExplicitlySet && lastResolvedPlaceName.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Konum Doğrulandı: $lastResolvedPlaceName (${String.format("%.4f", latitude)}, ${String.format("%.4f", longitude)})",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
 
             // Place Name manual input with search trigger
             OutlinedTextField(
@@ -558,89 +498,6 @@ fun AddEditTaskSheet(
                 shape = RoundedCornerShape(12.dp),
                 singleLine = true
             )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Interactive Pin on Map Preview Box
-            Text(
-                text = "📍 Haritada Konum İğneleme (Dokunarak Seçin)",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .pointerInput(Unit) {
-                        detectTapGestures { offset ->
-                            // Translate tap on mini map into coordinate nudge
-                            val width = size.width.toFloat()
-                            val height = size.height.toFloat()
-                            val deltaLng = ((offset.x / width) - 0.5f) * 0.04f
-                            val deltaLat = (0.5f - (offset.y / height)) * 0.04f
-                            latitude += deltaLat
-                            longitude += deltaLng
-                            isLocationExplicitlySet = true
-                        }
-                    }
-            ) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(12.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.2f),
-                            modifier = Modifier.size(54.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Default.LocationOn,
-                                    contentDescription = "İğne",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(32.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Seçili İğne: ${String.format("%.4f", latitude)}, ${String.format("%.4f", longitude)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Haritaya dokunarak iğneyi taşıyabilirsiniz",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Open in Google Maps Button
-                    OutlinedButton(
-                        onClick = {
-                            val uri = Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude(${Uri.encode(placeName.ifBlank { "Hedef Konum" })})")
-                            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Google Maps", fontSize = 11.sp)
-                    }
-                }
-            }
 
             Spacer(modifier = Modifier.height(14.dp))
 
