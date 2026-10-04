@@ -50,6 +50,18 @@ interface TaskLocationDao {
     @Query("UPDATE task_locations SET isCompleted = :isCompleted, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setCompleted(id: Long, isCompleted: Boolean, updatedAt: Long)
 
+    @Query("SELECT * FROM deleted_tasks")
+    suspend fun getDeletedTasks(): List<DeletedTaskEntity>
+
+    @Query("SELECT * FROM deleted_tasks WHERE syncId = :syncId LIMIT 1")
+    suspend fun getDeletion(syncId: String): DeletedTaskEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveDeletion(deletion: DeletedTaskEntity)
+
+    @Query("DELETE FROM deleted_tasks WHERE syncId = :syncId")
+    suspend fun removeDeletion(syncId: String)
+
     @Query("DELETE FROM task_locations WHERE isCompleted = 1")
     suspend fun clearCompletedTasks()
 }
