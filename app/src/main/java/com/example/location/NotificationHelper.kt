@@ -38,11 +38,12 @@ object NotificationHelper {
             // High-priority foreground tracking service channel (ensures persistent visibility & background accuracy)
             val serviceChannel = NotificationChannel(
                 CHANNEL_ID_SERVICE,
-                "Konum Takip Servisi (Yüksek Öncelik)",
-                NotificationManager.IMPORTANCE_HIGH
+                "Konum Takip Servisi (Sessiz)",
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Arka planda kesintisiz konum izleme ve görev yakınlık kontrolü"
                 setShowBadge(false)
+                setSound(null, null)
                 enableVibration(false)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
@@ -190,7 +191,9 @@ object NotificationHelper {
             .setContentText(summaryText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openPendingIntent)
