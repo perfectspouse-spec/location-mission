@@ -108,7 +108,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _taskToEdit = MutableStateFlow<TaskLocationEntity?>(null)
     private val _simulatedArrivalMessage = MutableStateFlow<String?>(null)
     private val _tickerTime = MutableStateFlow(System.currentTimeMillis())
-    private val _proximityThresholdMeters = MutableStateFlow(1000)
+    private val _proximityThresholdMeters = MutableStateFlow(prefs.getInt("proximity_threshold_meters", 1000))
     private val _routeTargetTask = MutableStateFlow<TaskLocationEntity?>(null)
     private val _showNearbyTaskAlert = MutableStateFlow(true)
     private val _customUserLocation = MutableStateFlow<Location?>(null)
@@ -308,6 +308,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setProximityThreshold(meters: Int) {
+        prefs.edit().putInt("proximity_threshold_meters", meters).apply()
         _proximityThresholdMeters.value = meters
     }
 
