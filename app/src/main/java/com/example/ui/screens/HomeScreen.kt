@@ -331,6 +331,12 @@ private fun TabletDualPaneLayout(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { viewModel.openSyncSheet() },
+                        modifier = Modifier.testTag("btn_sync_tablet")
+                    ) {
+                        Icon(Icons.Default.CloudSync, contentDescription = "Manuel JSON senkronizasyonu")
+                    }
                     // Language & Settings Button
                     IconButton(
                         onClick = { viewModel.openSettings() },
