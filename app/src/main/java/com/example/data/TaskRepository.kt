@@ -27,11 +27,12 @@ class TaskRepository(private val dao: TaskLocationDao) {
     }
 
     suspend fun deleteTask(task: TaskLocationEntity) {
+        dao.saveDeletion(DeletedTaskEntity(task.syncId, System.currentTimeMillis()))
         dao.deleteTask(task)
     }
 
     suspend fun deleteTaskById(id: Long) {
-        dao.deleteTaskById(id)
+        dao.getTaskById(id)?.let { deleteTask(it) }
     }
 
     suspend fun toggleCompleted(task: TaskLocationEntity) {
@@ -40,7 +41,7 @@ class TaskRepository(private val dao: TaskLocationDao) {
     }
 
     suspend fun clearCompletedTasks() {
-        dao.clearCompletedTasks()
+        dao.getAllTasksList().filter { it.isCompleted }.forEach { deleteTask(it) }
     }
 
     suspend fun markAsNotified(id: Long) {
@@ -60,6 +61,9 @@ class TaskRepository(private val dao: TaskLocationDao) {
         var modifiedCount = 0
         for (remote in remoteTasks) {
             val local = dao.getTaskBySyncId(remote.syncId)
+            val deletion = dao.getDeletion(remote.syncId)
+            if (deletion != null && deletion.deletedAt >= remote.updatedAt) continue
+            if (deletion != null && remote.updatedAt > deletion.deletedAt) dao.removeDeletion(remote.syncId)
             if (local == null) {
                 // Insert as new task
                 dao.insertTask(remote.copy(id = 0))
@@ -101,14 +105,36 @@ class TaskRepository(private val dao: TaskLocationDao) {
             obj.put("geminiPlaceInfo", t.geminiPlaceInfo ?: "")
             array.put(obj)
         }
-        return array.toString()
+        val deletions = JSONArray()
+        dao.getDeletedTasks().forEach { deletion ->
+            deletions.put(JSONObject().put("syncId", deletion.syncId).put("deletedAt", deletion.deletedAt))
+        }
+        return JSONObject().put("version", 2).put("tasks", array).put("deletions", deletions).toString()
     }
 
     /**
      * Parses JSON string received from another device and merges it
      */
     suspend fun importAndMergeFromJson(jsonString: String): Int {
-        val array = JSONArray(jsonString)
+        val trimmed = jsonString.trim()
+        val envelope = if (trimmed.startsWith("{")) JSONObject(trimmed) else null
+        val array = envelope?.getJSONArray("tasks") ?: JSONArray(trimmed)
+        val deletions = envelope?.optJSONArray("deletions") ?: JSONArray()
+        var deletedCount = 0
+        for (i in 0 until deletions.length()) {
+            val item = deletions.getJSONObject(i)
+            val syncId = item.getString("syncId")
+            val deletedAt = item.getLong("deletedAt")
+            val previous = dao.getDeletion(syncId)
+            if (previous == null || deletedAt > previous.deletedAt) {
+                dao.saveDeletion(DeletedTaskEntity(syncId, deletedAt))
+                val local = dao.getTaskBySyncId(syncId)
+                if (local != null && local.updatedAt <= deletedAt) {
+                    dao.deleteTask(local)
+                    deletedCount++
+                }
+            }
+        }
         val list = mutableListOf<TaskLocationEntity>()
         for (i in 0 until array.length()) {
             val obj = array.getJSONObject(i)
@@ -135,6 +161,6 @@ class TaskRepository(private val dao: TaskLocationDao) {
                 )
             )
         }
-        return mergeRemoteTasks(list)
+        return deletedCount + mergeRemoteTasks(list)
     }
 }
