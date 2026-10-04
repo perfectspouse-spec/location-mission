@@ -3,6 +3,7 @@ package com.example.ui.components
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -246,39 +247,10 @@ fun SyncSheet(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Connected devices list
                     Text(
-                        text = "Eşleşen Cihazlar: ${syncState.pairedDevices.joinToString(", ")}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
+                        text = "Otomatik eşitleme yok. JSON verisini diğer cihaza gönderin ve orada içe aktarın.",
+                        style = MaterialTheme.typography.bodySmall
                     )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Button(
-                        onClick = onTriggerSync,
-                        enabled = !syncState.isSyncing,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("sync_now_button"),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        if (syncState.isSyncing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Eşitleniyor...")
-                        } else {
-                            Icon(Icons.Default.Refresh, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Şimdi Eşitle", fontWeight = FontWeight.Bold)
-                        }
-                    }
                 }
             }
 
@@ -312,6 +284,24 @@ fun SyncSheet(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Dışa Aktar", fontSize = 12.sp)
                 }
+
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            try {
+                                val json = onExportData()
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/json"
+                                    putExtra(Intent.EXTRA_TEXT, json)
+                                }
+                                context.startActivity(Intent.createChooser(intent, "Görevleri diğer cihaza gönder"))
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Aktarım başarısız: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Paylaş", fontSize = 12.sp) }
 
                 OutlinedButton(
                     onClick = { isImportBoxVisible = !isImportBoxVisible },
