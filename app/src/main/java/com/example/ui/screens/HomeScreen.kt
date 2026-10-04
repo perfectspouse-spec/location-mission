@@ -502,20 +502,24 @@ private fun TabletDualPaneLayout(
                 }
             }
 
-            // RIGHT PANE (Detail: Task Information & Overview Dashboard)
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .padding(8.dp)
+            // Right pane: show the same task list instead of a task details dashboard.
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxHeight().padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                TabletTaskDetailPane(
-                    selectedTask = uiState.selectedTask,
-                    uiState = uiState,
-                    strings = strings,
-                    viewModel = viewModel,
-                    modifier = Modifier.fillMaxSize()
-                )
+                items(uiState.filteredTasks, key = { it.id }) { task ->
+                    TaskCard(
+                        task = task,
+                        isSelected = task.id == uiState.selectedTask?.id,
+                        userLatitude = uiState.currentUserLocation?.latitude,
+                        userLongitude = uiState.currentUserLocation?.longitude,
+                        onSelect = { viewModel.selectTask(task) },
+                        onToggleComplete = { viewModel.toggleTaskComplete(task) },
+                        onEdit = { viewModel.openEditTask(task) },
+                        onDelete = { viewModel.deleteTask(task) },
+                        onSimulateArrival = { viewModel.simulateArrival(task) }
+                    )
+                }
             }
         }
     }
