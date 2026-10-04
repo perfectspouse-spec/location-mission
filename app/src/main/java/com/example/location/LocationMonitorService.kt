@@ -176,8 +176,9 @@ class LocationMonitorService : Service() {
         serviceScope.launch {
             try {
                 val activeTasks = repository.getActiveTasksList()
-                var nearestTaskName: String? = null
-                var nearestDistance: Float? = null
+                val threshold = getSharedPreferences("geo_task_prefs", MODE_PRIVATE)
+                    .getInt("proximity_threshold_meters", 1000)
+                val enteredTasks = getSharedPreferences("location_geofence_entries", MODE_PRIVATE)
 
                 for (task in activeTasks) {
                     val distance = LocationHelper.calculateDistanceMeters(
@@ -192,20 +193,20 @@ class LocationMonitorService : Service() {
                         nearestTaskName = task.displayTitle
                     }
 
-                    // If user is within task's geofence radius
-                    if (distance <= task.radiusMeters) {
-                        val currentTime = System.currentTimeMillis()
-                        // Avoid duplicate spam: allow re-notification after 5 minutes
-                        val isRecent = task.lastNotifiedAt?.let { (currentTime - it) < 300_000L } ?: false
-
-                        if (!task.isNotificationTriggered || !isRecent) {
-                            NotificationHelper.showArrivalNotification(
-                                context = this@LocationMonitorService,
-                                task = task,
-                                distanceMeters = distance.toInt()
-                            )
-                            repository.markAsNotified(task.id)
-                        }
+                    // Alert only when crossing from outside to inside the configured radius.
+                    val inside = distance <= threshold
+                    val wasInside = enteredTasks.getBoolean(task.id.toString(), false)
+                    if (inside && !wasInside) {
+                        enteredTasks.edit().putBoolean(task.id.toString(), true).apply()
+                        NotificationHelper.showArrivalNotification(
+                            context = this@LocationMonitorService,
+                            task = task,
+                            distanceMeters = distance.toInt()
+                        )
+                        repository.markAsNotified(task.id)
+                    } else if (!inside && wasInside && distance > threshold + 50) {
+                        // Hysteresis prevents GPS jitter from repeatedly alerting at the boundary.
+                        enteredTasks.edit().putBoolean(task.id.toString(), false).apply()
                     }
                 }
 
