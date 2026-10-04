@@ -84,6 +84,10 @@ fun SyncSheet(
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var importPayloadText by remember { mutableStateOf("") }
+    var preferIncoming by remember { mutableStateOf(false) }
+    var isImportBoxVisible by remember { mutableStateOf(false) }
+
     val importFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             try {
@@ -110,10 +114,6 @@ fun SyncSheet(
             }
         }
     }
-    var importPayloadText by remember { mutableStateOf("") }
-    var preferIncoming by remember { mutableStateOf(false) }
-    var isImportBoxVisible by remember { mutableStateOf(false) }
-
     val formattedLastSync = remember(syncState.lastSyncTime) {
         if (syncState.lastSyncTime != null) {
             val sdf = SimpleDateFormat("HH:mm:ss (dd MMM)", Locale.forLanguageTag("tr"))
