@@ -18,7 +18,7 @@ data class SyncState(
     val isSyncing: Boolean = false,
     val lastSyncTime: Long? = null,
     val lastSyncMessage: String = "Henüz senkronize edilmedi",
-    val pairedDevices: List<String> = listOf("Tablet (Çevrimiçi)", "Telefon (Aktif)")
+    val pairedDevices: List<String> = emptyList()
 )
 
 class DeviceSyncManager(
@@ -45,7 +45,7 @@ class DeviceSyncManager(
             deviceName = savedName,
             syncRoomCode = savedCode,
             lastSyncTime = lastSync,
-            lastSyncMessage = if (lastSync != null) "Cihazlar senkronize durumda" else "Senkronizasyon hazır"
+            lastSyncMessage = if (lastSync != null) "Son manuel içe aktarma tamamlandı" else "Manuel aktarım bekleniyor"
         )
     }
 
@@ -79,27 +79,10 @@ class DeviceSyncManager(
      * Performs cross-device sync.
      * In an active multi-device setup, this pushes local changes and pulls tablet/phone changes.
      */
-    suspend fun performSync(): Result<String> = withContext(Dispatchers.IO) {
-        _syncState.value = _syncState.value.copy(isSyncing = true, lastSyncMessage = "Cihazlar aranıyor ve eşitleniyor...")
-        try {
-            delay(1200) // Realistic cloud & peer sync handshaking delay
-            val now = System.currentTimeMillis()
-            prefs.edit().putLong("KEY_LAST_SYNC_TIME", now).apply()
-
-            val successMsg = "Tüm cihazlar (${_syncState.value.syncRoomCode}) başarıyla eşitlendi."
-            _syncState.value = _syncState.value.copy(
-                isSyncing = false,
-                lastSyncTime = now,
-                lastSyncMessage = successMsg
-            )
-            Result.success(successMsg)
-        } catch (e: Exception) {
-            _syncState.value = _syncState.value.copy(
-                isSyncing = false,
-                lastSyncMessage = "Senkronizasyon hatası: ${e.localizedMessage}"
-            )
-            Result.failure(e)
-        }
+    suspend fun performSync(): Result<String> {
+        val message = "Otomatik bağlantı yok. Diğer cihaza JSON gönderip orada içe aktarın."
+        _syncState.value = _syncState.value.copy(lastSyncMessage = message)
+        return Result.failure(UnsupportedOperationException(message))
     }
 
     suspend fun exportPayload(): String {
