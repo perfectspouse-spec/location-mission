@@ -698,7 +698,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val res = syncManager.importPayload(json, preferIncoming)
             res.onSuccess { count ->
-                onComplete(true, "$count adet görev başarıyla içe aktarıldı ve eşitlendi.")
+                _searchQuery.value = ""
+                _selectedCategory.value = "Tümü"
+                _activeTab.value = NavigationTab.TASKS
+                _homeSearchedPlace.value = null
+                onComplete(true, if (count > 0) "$count kayıt aktarıldı. Görev listesi ve filtreler yenilendi." else "Aktarım tamamlandı ancak değişen kayıt yok. Görev zaten mevcut olabilir.")
             }.onFailure { e ->
                 onComplete(false, "Hata: ${e.localizedMessage}")
             }
