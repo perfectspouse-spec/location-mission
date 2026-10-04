@@ -694,9 +694,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncManager.setSyncRoomCode(code)
     }
 
-    fun importSyncJson(json: String, onComplete: (Boolean, String) -> Unit) {
+    fun importSyncJson(json: String, preferIncoming: Boolean, onComplete: (Boolean, String) -> Unit) {
         viewModelScope.launch {
-            val res = syncManager.importPayload(json)
+            val res = syncManager.importPayload(json, preferIncoming)
             res.onSuccess { count ->
                 onComplete(true, "$count adet görev başarıyla içe aktarıldı ve eşitlendi.")
             }.onFailure { e ->
