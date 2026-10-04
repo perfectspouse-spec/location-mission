@@ -62,15 +62,15 @@ class TaskRepository(private val dao: TaskLocationDao) {
         for (remote in remoteTasks) {
             val local = dao.getTaskBySyncId(remote.syncId)
             val deletion = dao.getDeletion(remote.syncId)
-            if (deletion != null && (!preferIncoming || deletion.deletedAt >= remote.updatedAt)) continue
-            if (deletion != null && remote.updatedAt > deletion.deletedAt) dao.removeDeletion(remote.syncId)
+            if (deletion != null && !preferIncoming) continue
+            if (deletion != null && preferIncoming) dao.removeDeletion(remote.syncId)
             if (local == null) {
                 // Insert as new task
                 dao.insertTask(remote.copy(id = 0))
                 modifiedCount++
-            } else if (preferIncoming && remote.updatedAt != local.updatedAt) {
+            } else if (preferIncoming && remote.copy(id = local.id, isNotificationTriggered = local.isNotificationTriggered, lastNotifiedAt = local.lastNotifiedAt) != local) {
                 // Update local task with newer remote changes
-                val updated = remote.copy(id = local.id)
+                val updated = remote.copy(id = local.id, isNotificationTriggered = local.isNotificationTriggered, lastNotifiedAt = local.lastNotifiedAt)
                 dao.updateTask(updated)
                 modifiedCount++
             }
