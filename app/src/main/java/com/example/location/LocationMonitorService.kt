@@ -49,6 +49,13 @@ class LocationMonitorService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: ACTION_START
+        // A sticky service restart must never re-enable tracking after the user disabled it.
+        if (action == ACTION_START && !getSharedPreferences("location_tracking", MODE_PRIVATE).getBoolean("enabled", false)) {
+            stopTracking()
+            stopSelf()
+            _isServiceRunning.value = false
+            return START_NOT_STICKY
+        }
 
         when (action) {
             ACTION_STOP -> {
@@ -105,7 +112,7 @@ class LocationMonitorService : Service() {
             }
         }
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     @SuppressLint("MissingPermission")
@@ -250,6 +257,7 @@ class LocationMonitorService : Service() {
         val currentLocation = _currentLocation.asStateFlow()
 
         fun startService(context: Context) {
+            context.getSharedPreferences("location_tracking", Context.MODE_PRIVATE).edit().putBoolean("enabled", true).apply()
             val intent = Intent(context, LocationMonitorService::class.java).apply {
                 action = ACTION_START
             }
@@ -257,6 +265,7 @@ class LocationMonitorService : Service() {
         }
 
         fun stopService(context: Context) {
+            context.getSharedPreferences("location_tracking", Context.MODE_PRIVATE).edit().putBoolean("enabled", false).commit()
             val intent = Intent(context, LocationMonitorService::class.java).apply {
                 action = ACTION_STOP
             }
