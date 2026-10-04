@@ -89,9 +89,9 @@ class DeviceSyncManager(
         return repository.exportTasksToJson()
     }
 
-    suspend fun importPayload(json: String): Result<Int> = withContext(Dispatchers.IO) {
+    suspend fun importPayload(json: String, preferIncoming: Boolean = false): Result<Int> = withContext(Dispatchers.IO) {
         try {
-            val count = repository.importAndMergeFromJson(json)
+            val count = repository.importAndMergeFromJson(json, preferIncoming)
             val now = System.currentTimeMillis()
             prefs.edit().putLong("KEY_LAST_SYNC_TIME", now).apply()
             _syncState.value = _syncState.value.copy(
