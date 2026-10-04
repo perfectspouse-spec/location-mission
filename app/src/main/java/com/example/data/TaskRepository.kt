@@ -57,18 +57,18 @@ class TaskRepository(private val dao: TaskLocationDao) {
      * Conflict resolution: Last-Write-Wins based on updatedAt timestamp.
      * Returns count of updated or added items.
      */
-    suspend fun mergeRemoteTasks(remoteTasks: List<TaskLocationEntity>): Int {
+    suspend fun mergeRemoteTasks(remoteTasks: List<TaskLocationEntity>, preferIncoming: Boolean = false): Int {
         var modifiedCount = 0
         for (remote in remoteTasks) {
             val local = dao.getTaskBySyncId(remote.syncId)
             val deletion = dao.getDeletion(remote.syncId)
-            if (deletion != null && deletion.deletedAt >= remote.updatedAt) continue
+            if (deletion != null && (!preferIncoming || deletion.deletedAt >= remote.updatedAt)) continue
             if (deletion != null && remote.updatedAt > deletion.deletedAt) dao.removeDeletion(remote.syncId)
             if (local == null) {
                 // Insert as new task
                 dao.insertTask(remote.copy(id = 0))
                 modifiedCount++
-            } else if (remote.updatedAt > local.updatedAt) {
+            } else if (preferIncoming && remote.updatedAt != local.updatedAt) {
                 // Update local task with newer remote changes
                 val updated = remote.copy(id = local.id)
                 dao.updateTask(updated)
@@ -115,7 +115,7 @@ class TaskRepository(private val dao: TaskLocationDao) {
     /**
      * Parses JSON string received from another device and merges it
      */
-    suspend fun importAndMergeFromJson(jsonString: String): Int {
+    suspend fun importAndMergeFromJson(jsonString: String, preferIncoming: Boolean = false): Int {
         val trimmed = jsonString.trim()
         val envelope = if (trimmed.startsWith("{")) JSONObject(trimmed) else null
         val array = envelope?.getJSONArray("tasks") ?: JSONArray(trimmed)
@@ -129,7 +129,7 @@ class TaskRepository(private val dao: TaskLocationDao) {
             if (previous == null || deletedAt > previous.deletedAt) {
                 dao.saveDeletion(DeletedTaskEntity(syncId, deletedAt))
                 val local = dao.getTaskBySyncId(syncId)
-                if (local != null && local.updatedAt <= deletedAt) {
+                if (local != null && (preferIncoming || local.updatedAt <= deletedAt)) {
                     dao.deleteTask(local)
                     deletedCount++
                 }
@@ -161,6 +161,6 @@ class TaskRepository(private val dao: TaskLocationDao) {
                 )
             )
         }
-        return deletedCount + mergeRemoteTasks(list)
+        return deletedCount + mergeRemoteTasks(list, preferIncoming)
     }
 }
