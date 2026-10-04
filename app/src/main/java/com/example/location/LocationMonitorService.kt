@@ -188,11 +188,6 @@ class LocationMonitorService : Service() {
                         task.longitude
                     )
 
-                    if (nearestDistance == null || distance < nearestDistance) {
-                        nearestDistance = distance
-                        nearestTaskName = task.displayTitle
-                    }
-
                     // Alert only when crossing from outside to inside the configured radius.
                     val inside = distance <= threshold
                     val wasInside = enteredTasks.getBoolean(task.id.toString(), false)
