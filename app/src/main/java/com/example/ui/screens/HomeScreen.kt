@@ -377,7 +377,7 @@ private fun TabletDualPaneLayout(
             // LEFT PANE (Master: Tasks List, Filters, Enter Key Banner)
             Column(
                 modifier = Modifier
-                    .width(420.dp)
+                    .weight(1f)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -398,6 +398,8 @@ private fun TabletDualPaneLayout(
                         )
                     }
                 }
+
+                UnifiedHomeSearch(uiState, viewModel)
 
                 // Category Filter Dropdown (ComboBox)
                 CategoryFilterDropdown(
@@ -502,26 +504,34 @@ private fun TabletDualPaneLayout(
                 }
             }
 
-            // Right pane: show the same task list instead of a task details dashboard.
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxHeight().padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(uiState.filteredTasks, key = { it.id }) { task ->
-                    TaskCard(
-                        task = task,
-                        isSelected = task.id == uiState.selectedTask?.id,
-                        userLatitude = uiState.currentUserLocation?.latitude,
-                        userLongitude = uiState.currentUserLocation?.longitude,
-                        onSelect = { viewModel.selectTask(task) },
-                        onToggleComplete = { viewModel.toggleTaskComplete(task) },
-                        onEdit = { viewModel.openEditTask(task) },
-                        onDelete = { viewModel.deleteTask(task) },
-                        onSimulateArrival = { viewModel.simulateArrival(task) }
-                    )
-                }
-            }
+
         }
+    }
+}
+
+@Composable
+private fun UnifiedHomeSearch(uiState: MainUiState, viewModel: MainViewModel) {
+    var query by remember { mutableStateOf(uiState.searchQuery) }
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it; viewModel.setSearchQuery(it) },
+        modifier = Modifier.fillMaxWidth().testTag("unified_home_search"),
+        placeholder = { Text("Görev veya adres ara") },
+        singleLine = true,
+        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        trailingIcon = {
+            IconButton(onClick = { if (query.isNotBlank()) viewModel.searchPlaceOnMap(query) }) {
+                Icon(Icons.Default.Place, contentDescription = "Adresi ara")
+            }
+        },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = {
+            if (query.isNotBlank()) viewModel.searchPlaceOnMap(query)
+        })
+    )
+    uiState.homeSearchedPlace?.let { place ->
+        Text(text = place.placeName, style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = { viewModel.openAddTask(place) }) { Text("Bu adrese görev ekle") }
     }
 }
 
@@ -1063,7 +1073,9 @@ private fun PhoneSinglePaneLayout(
                             }
                         }
 
-                        // Category Filter Dropdown (ComboBox)
+                        UnifiedHomeSearch(uiState, viewModel)
+
+                // Category Filter Dropdown (ComboBox)
                         CategoryFilterDropdown(
                             selectedCategory = uiState.selectedCategory,
                             onCategorySelected = { viewModel.selectCategory(it) },
