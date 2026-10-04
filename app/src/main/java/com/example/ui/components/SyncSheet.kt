@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -82,6 +84,32 @@ fun SyncSheet(
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    val importFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    ?: throw IllegalStateException("Dosya okunamadı")
+                importPayloadText = json
+                Toast.makeText(context, "JSON dosyası yüklendi; içe aktarmayı onaylayın.", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Dosya açılamadı: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    val exportFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val json = onExportData()
+                    context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(json) }
+                        ?: throw IllegalStateException("Dosyaya yazılamadı")
+                    Toast.makeText(context, "JSON dosyası kaydedildi.", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Dışa aktarma hatası: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
     var importPayloadText by remember { mutableStateOf("") }
     var preferIncoming by remember { mutableStateOf(false) }
     var isImportBoxVisible by remember { mutableStateOf(false) }
@@ -314,6 +342,16 @@ fun SyncSheet(
                     Text("İçe Aktar", fontSize = 12.sp)
                 }
             }
+
+            OutlinedButton(
+                onClick = { exportFileLauncher.launch("location-mission-tasks.json") },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("JSON dosyası olarak kaydet") }
+
+            OutlinedButton(
+                onClick = { isImportBoxVisible = true; importFileLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("JSON dosyasından yükle") }
 
             if (isImportBoxVisible) {
                 Text("Çakışma olduğunda hangi sürüm korunsun?")
