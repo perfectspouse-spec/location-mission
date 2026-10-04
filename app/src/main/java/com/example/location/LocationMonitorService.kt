@@ -209,16 +209,8 @@ class LocationMonitorService : Service() {
                     }
                 }
 
-                // Update the high-priority foreground notification with live coordinates and nearest task info
-                val updatedNotification = NotificationHelper.buildForegroundNotification(
-                    context = this@LocationMonitorService,
-                    activeTaskCount = activeTasks.size,
-                    currentLocation = userLocation,
-                    nearestTaskName = nearestTaskName,
-                    nearestTaskDistanceMeters = nearestDistance?.toInt()
-                )
-                val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-                notificationManager.notify(NotificationHelper.NOTIFICATION_ID_SERVICE, updatedNotification)
+                // Foreground notification stays static: location updates must not
+                // repeatedly refresh the system notification every few seconds.
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking task proximity", e)
