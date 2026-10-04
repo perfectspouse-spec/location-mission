@@ -75,7 +75,7 @@ fun SyncSheet(
     onSyncCodeChange: (String) -> Unit,
     onTriggerSync: () -> Unit,
     onExportData: suspend () -> String,
-    onImportData: (String, (Boolean, String) -> Unit) -> Unit,
+    onImportData: (String, Boolean, (Boolean, String) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -83,6 +83,7 @@ fun SyncSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var importPayloadText by remember { mutableStateOf("") }
+    var preferIncoming by remember { mutableStateOf(false) }
     var isImportBoxVisible by remember { mutableStateOf(false) }
 
     val formattedLastSync = remember(syncState.lastSyncTime) {
@@ -315,6 +316,11 @@ fun SyncSheet(
             }
 
             if (isImportBoxVisible) {
+                Text("Çakışma olduğunda hangi sürüm korunsun?")
+                androidx.compose.material3.RadioButton(selected = !preferIncoming, onClick = { preferIncoming = false })
+                Text("Bu cihazdaki mevcut görevleri koru")
+                androidx.compose.material3.RadioButton(selected = preferIncoming, onClick = { preferIncoming = true })
+                Text("Gelen JSON verisini tercih et")
                 Spacer(modifier = Modifier.height(10.dp))
                 OutlinedTextField(
                     value = importPayloadText,
@@ -331,7 +337,7 @@ fun SyncSheet(
                 Button(
                     onClick = {
                         if (importPayloadText.isNotBlank()) {
-                            onImportData(importPayloadText) { success, msg ->
+                            onImportData(importPayloadText, preferIncoming) { success, msg ->
                                 Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                 if (success) {
                                     importPayloadText = ""
