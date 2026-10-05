@@ -221,17 +221,6 @@ fun TaskCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Temporary sync diagnostics: show the stable cross-device identifier.
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "Sync ID: ${task.syncId}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-                fontSize = 10.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
             // Place Name (if different from title)
             if (task.placeName.isNotBlank() && task.placeName != task.title) {
                 Spacer(modifier = Modifier.height(2.dp))
