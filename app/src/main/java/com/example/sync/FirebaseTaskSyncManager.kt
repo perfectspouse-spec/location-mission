@@ -41,7 +41,9 @@ class FirebaseTaskSyncManager(
             if (localDeletion == null || deletion.deletedAt > localDeletion.deletedAt) {
                 repository.saveDeletion(deletion)
             }
-            if (localTask != null && deletion.deletedAt >= localTask.updatedAt) {
+            if (localTask != null) {
+                // A cloud tombstone is authoritative. Do not let an offline copy
+                // resurrect a task that another device has explicitly deleted.
                 repository.deleteTaskForSync(localTask)
                 downloaded++
             }
@@ -56,7 +58,7 @@ class FirebaseTaskSyncManager(
             val deletion = localDeletions[remote.syncId]
             val remoteDeletion = remoteDeletionBySyncId[remote.syncId]
             val newestDeletion = listOfNotNull(deletion, remoteDeletion).maxByOrNull { it.deletedAt }
-            (newestDeletion == null || remote.updatedAt > newestDeletion.deletedAt) &&
+            newestDeletion == null &&
                 (local == null || remote.updatedAt > local.updatedAt)
         }
         downloaded += repository.mergeRemoteTasks(tasksToDownload, preferIncoming = true)
@@ -79,13 +81,11 @@ class FirebaseTaskSyncManager(
         val tasksToUpload = currentLocalTasks.filter { local ->
             val remote = remoteBySyncId[local.syncId]
             val remoteDeletion = remoteDeletionBySyncId[local.syncId]
-            (remoteDeletion == null || local.updatedAt > remoteDeletion.deletedAt) &&
+            remoteDeletion == null &&
                 (remote == null || local.updatedAt > remote.updatedAt)
         }
         tasksToUpload.forEach { task ->
             tasksRef.document(task.syncId).set(task.toCloudMap()).await()
-            // A newer edit intentionally resurrects a previously deleted task.
-            deletionsRef.document(task.syncId).delete().await()
             repository.removeDeletion(task.syncId)
         }
 
