@@ -685,7 +685,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             cloudSyncManager.syncNow()
                 .onSuccess { result ->
                     syncManager.setCloudSyncResult(
-                        "Tamamlandı: ${result.uploaded} görev buluta gönderildi, ${result.downloaded} kayıt yerelde güncellendi."
+                        "Tamamlandı: ${result.uploaded} görev gönderildi, ${result.downloaded} kayıt güncellendi, ${result.deletionsUploaded} silme buluta gönderildi, ${result.deletionsApplied} silme uygulandı."
                     )
                 }
                 .onFailure { error ->
