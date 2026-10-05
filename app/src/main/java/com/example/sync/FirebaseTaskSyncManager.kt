@@ -17,16 +17,28 @@ class FirebaseTaskSyncManager(
         val user = auth.currentUser ?: error("Google hesabıyla giriş yapmanız gerekiyor.")
         val tasksRef = firestore.collection("users").document(user.uid).collection("tasks")
         val localTasks = repository.getAllTasksList()
+        val localBySyncId = localTasks.associateBy { it.syncId }
 
-        // First safe migration: upload existing Room tasks without deleting anything.
-        localTasks.forEach { task ->
+        // Read cloud first. Never let an older local copy overwrite a newer remote copy.
+        val snapshot = tasksRef.get().await()
+        val remoteTasks = snapshot.documents.mapNotNull { doc -> doc.toTask() }
+        val remoteBySyncId = remoteTasks.associateBy { it.syncId }
+
+        val tasksToDownload = remoteTasks.filter { remote ->
+            val local = localBySyncId[remote.syncId]
+            local == null || remote.updatedAt > local.updatedAt
+        }
+        val downloaded = repository.mergeRemoteTasks(tasksToDownload, preferIncoming = true)
+
+        val tasksToUpload = localTasks.filter { local ->
+            val remote = remoteBySyncId[local.syncId]
+            remote == null || local.updatedAt > remote.updatedAt
+        }
+        tasksToUpload.forEach { task ->
             tasksRef.document(task.syncId).set(task.toCloudMap()).await()
         }
 
-        val snapshot = tasksRef.get().await()
-        val remoteTasks = snapshot.documents.mapNotNull { doc -> doc.toTask() }
-        val downloaded = repository.mergeRemoteTasks(remoteTasks, preferIncoming = true)
-        CloudSyncResult(uploaded = localTasks.size, downloaded = downloaded)
+        CloudSyncResult(uploaded = tasksToUpload.size, downloaded = downloaded)
     }
 }
 
