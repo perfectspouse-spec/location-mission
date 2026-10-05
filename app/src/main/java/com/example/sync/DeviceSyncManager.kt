@@ -59,6 +59,30 @@ class DeviceSyncManager(
         return "GEO-$randomNum"
     }
 
+    fun setCloudSyncRunning() {
+        _syncState.value = _syncState.value.copy(
+            isSyncing = true,
+            lastSyncMessage = "Bulut senkronizasyonu yapılıyor..."
+        )
+    }
+
+    fun setCloudSyncResult(message: String) {
+        val now = System.currentTimeMillis()
+        prefs.edit().putLong("KEY_LAST_SYNC_TIME", now).apply()
+        _syncState.value = _syncState.value.copy(
+            isSyncing = false,
+            lastSyncTime = now,
+            lastSyncMessage = message
+        )
+    }
+
+    fun setCloudSyncError(message: String) {
+        _syncState.value = _syncState.value.copy(
+            isSyncing = false,
+            lastSyncMessage = message
+        )
+    }
+
     fun setDeviceType(newType: String) {
         prefs.edit().putString("KEY_DEVICE_TYPE", newType).apply()
         _syncState.value = _syncState.value.copy(deviceType = newType)
