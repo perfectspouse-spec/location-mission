@@ -7,7 +7,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 
-data class CloudSyncResult(val uploaded: Int, val downloaded: Int)
+data class CloudSyncResult(val uploaded: Int, val downloaded: Int, val deletionsUploaded: Int, val deletionsApplied: Int)
 
 class FirebaseTaskSyncManager(
     private val repository: TaskRepository,
@@ -33,6 +33,7 @@ class FirebaseTaskSyncManager(
         }
 
         var downloaded = 0
+        var deletionsApplied = 0
 
         // Apply newer cloud tombstones locally. A newer local edit resurrects the task instead.
         remoteDeletions.forEach { deletion ->
@@ -46,6 +47,7 @@ class FirebaseTaskSyncManager(
                 // resurrect a task that another device has explicitly deleted.
                 repository.deleteTaskForSync(localTask)
                 downloaded++
+                deletionsApplied++
             }
         }
 
@@ -68,6 +70,7 @@ class FirebaseTaskSyncManager(
         val allLocalDeletions = repository.getDeletedTasks()
 
         // Upload local tombstones and remove stale cloud task documents.
+        var deletionsUploaded = 0
         allLocalDeletions.forEach { deletion ->
             val remoteTask = remoteBySyncId[deletion.syncId]
             if (remoteTask == null || deletion.deletedAt >= remoteTask.updatedAt) {
@@ -75,6 +78,7 @@ class FirebaseTaskSyncManager(
                     mapOf("syncId" to deletion.syncId, "deletedAt" to deletion.deletedAt)
                 ).await()
                 tasksRef.document(deletion.syncId).delete().await()
+                deletionsUploaded++
             }
         }
 
@@ -89,7 +93,7 @@ class FirebaseTaskSyncManager(
             repository.removeDeletion(task.syncId)
         }
 
-        CloudSyncResult(uploaded = tasksToUpload.size, downloaded = downloaded)
+        CloudSyncResult(uploaded = tasksToUpload.size, downloaded = downloaded, deletionsUploaded = deletionsUploaded, deletionsApplied = deletionsApplied)
     }
 }
 
