@@ -1,11 +1,14 @@
 package com.example.ui.components
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.widget.Toast
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,16 +60,31 @@ fun SyncSheet(
         scope.launch {
             isSigningIn = true
             try {
-                val credentialManager = CredentialManager.create(context)
-                val googleIdOption = GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setServerClientId(context.getString(com.example.R.string.default_web_client_id))
-                    .setAutoSelectEnabled(false)
-                    .build()
-                val request = GetCredentialRequest.Builder()
-                    .addCredentialOption(googleIdOption)
-                    .build()
-                val result = credentialManager.getCredential(context, request)
+                val activity = context.findActivity()
+                    ?: error("Google giriş ekranı için Activity bulunamadı.")
+                val credentialManager = CredentialManager.create(activity)
+                val serverClientId = activity.getString(com.example.R.string.default_web_client_id)
+
+                suspend fun requestGoogleCredential(authorizedOnly: Boolean) =
+                    credentialManager.getCredential(
+                        context = activity,
+                        request = GetCredentialRequest.Builder()
+                            .addCredentialOption(
+                                GetGoogleIdOption.Builder()
+                                    .setFilterByAuthorizedAccounts(authorizedOnly)
+                                    .setServerClientId(serverClientId)
+                                    .setAutoSelectEnabled(false)
+                                    .build()
+                            )
+                            .build()
+                    )
+
+                val result = try {
+                    requestGoogleCredential(authorizedOnly = true)
+                } catch (_: NoCredentialException) {
+                    requestGoogleCredential(authorizedOnly = false)
+                }
+
                 val googleCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
                 val firebaseCredential = GoogleAuthProvider.getCredential(googleCredential.idToken, null)
                 auth.signInWithCredential(firebaseCredential)
@@ -81,7 +99,11 @@ fun SyncSheet(
                     }
             } catch (e: GetCredentialException) {
                 isSigningIn = false
-                Toast.makeText(context, "Google hesabı seçilemedi: ${e.localizedMessage ?: e.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    "Google hesabı seçilemedi (${e.javaClass.simpleName}): ${e.localizedMessage ?: "ayrıntı yok"}",
+                    Toast.LENGTH_LONG
+                ).show()
             } catch (e: Exception) {
                 isSigningIn = false
                 Toast.makeText(context, "Giriş hatası: ${e.localizedMessage ?: e.javaClass.simpleName}", Toast.LENGTH_LONG).show()
@@ -172,4 +194,11 @@ fun SyncSheet(
             Spacer(Modifier.height(20.dp))
         }
     }
+}
+
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
