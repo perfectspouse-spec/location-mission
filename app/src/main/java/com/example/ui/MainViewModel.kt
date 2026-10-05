@@ -679,8 +679,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun triggerSync() {
+        if (syncManager.syncState.value.isSyncing) return
         viewModelScope.launch {
+            syncManager.setCloudSyncRunning()
             cloudSyncManager.syncNow()
+                .onSuccess { result ->
+                    syncManager.setCloudSyncResult(
+                        "Tamamlandı: ${result.uploaded} görev buluta gönderildi, ${result.downloaded} kayıt yerelde güncellendi."
+                    )
+                }
+                .onFailure { error ->
+                    syncManager.setCloudSyncError(
+                        "Senkronizasyon hatası: ${error.localizedMessage ?: error.javaClass.simpleName}"
+                    )
+                }
         }
     }
 
