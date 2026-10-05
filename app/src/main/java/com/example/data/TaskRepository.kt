@@ -11,6 +11,11 @@ class TaskRepository(private val dao: TaskLocationDao) {
 
     suspend fun getActiveTasksList(): List<TaskLocationEntity> = dao.getActiveTasksList()
     suspend fun getAllTasksList(): List<TaskLocationEntity> = dao.getAllTasksList()
+    suspend fun getDeletedTasks(): List<DeletedTaskEntity> = dao.getDeletedTasks()
+    suspend fun getDeletion(syncId: String): DeletedTaskEntity? = dao.getDeletion(syncId)
+    suspend fun saveDeletion(deletion: DeletedTaskEntity) = dao.saveDeletion(deletion)
+    suspend fun removeDeletion(syncId: String) = dao.removeDeletion(syncId)
+    suspend fun deleteTaskForSync(task: TaskLocationEntity) = dao.deleteTask(task)
 
     suspend fun addTask(task: TaskLocationEntity): Long {
         val timestamp = System.currentTimeMillis()
