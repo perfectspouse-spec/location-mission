@@ -264,8 +264,6 @@ fun HomeScreen(
             onDeviceNameChange = { viewModel.setDeviceName(it) },
             onSyncCodeChange = { viewModel.setSyncRoomCode(it) },
             onTriggerSync = { viewModel.triggerSync() },
-            onExportData = { viewModel.exportSyncJson() },
-            onImportData = { json, preferIncoming, cb -> viewModel.importSyncJson(json, preferIncoming, cb) },
             onDismiss = { viewModel.closeSyncSheet() }
         )
     }
