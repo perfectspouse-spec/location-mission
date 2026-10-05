@@ -76,8 +76,6 @@ fun SyncSheet(
     onDeviceNameChange: (String) -> Unit,
     onSyncCodeChange: (String) -> Unit,
     onTriggerSync: () -> Unit,
-    onExportData: suspend () -> String,
-    onImportData: (String, Boolean, (Boolean, String) -> Unit) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -88,32 +86,6 @@ fun SyncSheet(
     var preferIncoming by remember { mutableStateOf(false) }
     var isImportBoxVisible by remember { mutableStateOf(false) }
 
-    val importFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            try {
-                val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                    ?: throw IllegalStateException("Dosya okunamadı")
-                importPayloadText = json
-                Toast.makeText(context, "JSON dosyası yüklendi; içe aktarmayı onaylayın.", Toast.LENGTH_LONG).show()
-            } catch (e: Exception) {
-                Toast.makeText(context, "Dosya açılamadı: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-    val exportFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val json = onExportData()
-                    context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(json) }
-                        ?: throw IllegalStateException("Dosyaya yazılamadı")
-                    Toast.makeText(context, "JSON dosyası kaydedildi.", Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Dışa aktarma hatası: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-    }
     val formattedLastSync = remember(syncState.lastSyncTime) {
         if (syncState.lastSyncTime != null) {
             val sdf = SimpleDateFormat("HH:mm:ss (dd MMM)", Locale.forLanguageTag("tr"))
@@ -277,120 +249,13 @@ fun SyncSheet(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = "Otomatik eşitleme yok. JSON verisini diğer cihaza gönderin ve orada içe aktarın.",
+                        text = "Bulut senkronizasyonu yakında kullanıma açılacak.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Peer-to-Peer Direct JSON Export & Import (Instant manual sync between tablet & phone)
-            Text(
-                text = "Manuel Veri Aktarımı",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            val json = onExportData()
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("GeoTaskData", json))
-                            Toast.makeText(context, "Görev verileri panoya kopyalandı (Tablete yapıştırılabilir)", Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Dışa Aktar", fontSize = 12.sp)
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            try {
-                                val json = onExportData()
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "application/json"
-                                    putExtra(Intent.EXTRA_TEXT, json)
-                                }
-                                context.startActivity(Intent.createChooser(intent, "Görevleri diğer cihaza gönder"))
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Aktarım başarısız: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                ) { Text("Paylaş", fontSize = 12.sp) }
-
-                OutlinedButton(
-                    onClick = { isImportBoxVisible = !isImportBoxVisible },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("İçe Aktar", fontSize = 12.sp)
-                }
-            }
-
-            OutlinedButton(
-                onClick = { exportFileLauncher.launch("location-mission-tasks.json") },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("JSON dosyası olarak kaydet") }
-
-            OutlinedButton(
-                onClick = { isImportBoxVisible = true; importFileLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("JSON dosyasından yükle") }
-
-            if (isImportBoxVisible) {
-                Text("Çakışma olduğunda hangi sürüm korunsun?")
-                androidx.compose.material3.RadioButton(selected = !preferIncoming, onClick = { preferIncoming = false })
-                Text("Bu cihazdaki mevcut görevleri koru")
-                androidx.compose.material3.RadioButton(selected = preferIncoming, onClick = { preferIncoming = true })
-                Text("Gelen JSON verisini tercih et")
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = importPayloadText,
-                    onValueChange = { importPayloadText = it },
-                    label = { Text("Diğer Cihazdan Kopyalanan JSON Verisi") },
-                    placeholder = { Text("[{\"placeName\":\"...\"}]") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    maxLines = 4
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Button(
-                    onClick = {
-                        if (importPayloadText.isNotBlank()) {
-                            onImportData(importPayloadText, preferIncoming) { success, msg ->
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                if (success) {
-                                    importPayloadText = ""
-                                    isImportBoxVisible = false
-                                }
-                            }
-                        }
-                    },
-                    enabled = importPayloadText.isNotBlank(),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Görevleri İçe Aktar ve Birleştir")
-                }
-            }
 
             Spacer(modifier = Modifier.height(28.dp))
         }
