@@ -13,6 +13,7 @@ import com.example.gemini.PlaceSearchResult
 import com.example.location.LocationHelper
 import com.example.location.LocationMonitorService
 import com.example.sync.DeviceSyncManager
+import com.example.sync.FirebaseTaskSyncManager
 import com.example.sync.SyncState
 import com.example.ui.localization.AppLanguage
 import com.example.ui.localization.LocalizationManager
@@ -72,6 +73,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getInstance(application)
     private val repository = TaskRepository(database.taskLocationDao())
     private val syncManager = DeviceSyncManager(application, repository)
+    private val cloudSyncManager = FirebaseTaskSyncManager(repository)
     private val geminiService = GeminiMapsService(application)
     private val prefs = application.getSharedPreferences("geo_task_prefs", Context.MODE_PRIVATE)
 
@@ -678,7 +680,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun triggerSync() {
         viewModelScope.launch {
-            syncManager.performSync()
+            cloudSyncManager.syncNow()
         }
     }
 
