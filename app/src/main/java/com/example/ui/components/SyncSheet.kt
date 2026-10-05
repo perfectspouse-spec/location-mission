@@ -147,9 +147,20 @@ fun SyncSheet(
                 }
             }
 
+            if (currentUser != null) {
+                Button(
+                    onClick = onTriggerSync,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.CloudSync, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Şimdi senkronize et")
+                }
+            }
+
             Text(
                 if (currentUser == null) "Bulut senkronizasyonu için önce Google hesabınızla giriş yapın."
-                else "Hesap hazır. Bir sonraki aşamada Room ↔ Firestore görev senkronizasyonunu bağlayacağız.",
+                else "Hesap hazır. Şimdi senkronize ederek Room görevlerini Firestore ile birleştirebilirsiniz.",
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(Modifier.height(20.dp))
