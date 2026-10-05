@@ -46,7 +46,6 @@ class FirebaseTaskSyncManager(
                 // A cloud tombstone is authoritative. Do not let an offline copy
                 // resurrect a task that another device has explicitly deleted.
                 repository.deleteTaskForSync(localTask)
-                downloaded++
                 deletionsApplied++
             }
         }
