@@ -1,5 +1,6 @@
 package com.example.sync
 
+import com.example.data.DeletedTaskEntity
 import com.example.data.TaskLocationEntity
 import com.example.data.TaskRepository
 import com.google.firebase.auth.FirebaseAuth
@@ -15,27 +16,77 @@ class FirebaseTaskSyncManager(
 ) {
     suspend fun syncNow(): Result<CloudSyncResult> = runCatching {
         val user = auth.currentUser ?: error("Google hesabıyla giriş yapmanız gerekiyor.")
-        val tasksRef = firestore.collection("users").document(user.uid).collection("tasks")
-        val localTasks = repository.getAllTasksList()
-        val localBySyncId = localTasks.associateBy { it.syncId }
+        val userRef = firestore.collection("users").document(user.uid)
+        val tasksRef = userRef.collection("tasks")
+        val deletionsRef = userRef.collection("deletedTasks")
 
-        // Read cloud first. Never let an older local copy overwrite a newer remote copy.
-        val snapshot = tasksRef.get().await()
-        val remoteTasks = snapshot.documents.mapNotNull { doc -> doc.toTask() }
-        val remoteBySyncId = remoteTasks.associateBy { it.syncId }
+        var localTasks = repository.getAllTasksList()
+        val localDeletions = repository.getDeletedTasks().associateBy { it.syncId }
+
+        // Read cloud state first so Last-Write-Wins also applies to deletions.
+        val taskSnapshot = tasksRef.get().await()
+        val deletionSnapshot = deletionsRef.get().await()
+        val remoteTasks = taskSnapshot.documents.mapNotNull { doc -> doc.toTask() }
+        val remoteDeletions = deletionSnapshot.documents.mapNotNull { doc ->
+            val syncId = doc.getString("syncId") ?: doc.id.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            DeletedTaskEntity(syncId, doc.getLong("deletedAt") ?: return@mapNotNull null)
+        }
+
+        var downloaded = 0
+
+        // Apply newer cloud tombstones locally. A newer local edit resurrects the task instead.
+        remoteDeletions.forEach { deletion ->
+            val localTask = localTasks.firstOrNull { it.syncId == deletion.syncId }
+            val localDeletion = repository.getDeletion(deletion.syncId)
+            if (localDeletion == null || deletion.deletedAt > localDeletion.deletedAt) {
+                repository.saveDeletion(deletion)
+            }
+            if (localTask != null && deletion.deletedAt >= localTask.updatedAt) {
+                repository.deleteTaskForSync(localTask)
+                downloaded++
+            }
+        }
+
+        localTasks = repository.getAllTasksList()
+        val localBySyncId = localTasks.associateBy { it.syncId }
+        val remoteDeletionBySyncId = remoteDeletions.associateBy { it.syncId }
 
         val tasksToDownload = remoteTasks.filter { remote ->
             val local = localBySyncId[remote.syncId]
-            local == null || remote.updatedAt > local.updatedAt
+            val deletion = localDeletions[remote.syncId]
+            val remoteDeletion = remoteDeletionBySyncId[remote.syncId]
+            val newestDeletion = listOfNotNull(deletion, remoteDeletion).maxByOrNull { it.deletedAt }
+            (newestDeletion == null || remote.updatedAt > newestDeletion.deletedAt) &&
+                (local == null || remote.updatedAt > local.updatedAt)
         }
-        val downloaded = repository.mergeRemoteTasks(tasksToDownload, preferIncoming = true)
+        downloaded += repository.mergeRemoteTasks(tasksToDownload, preferIncoming = true)
 
-        val tasksToUpload = localTasks.filter { local ->
+        val currentLocalTasks = repository.getAllTasksList()
+        val remoteBySyncId = remoteTasks.associateBy { it.syncId }
+        val allLocalDeletions = repository.getDeletedTasks()
+
+        // Upload local tombstones and remove stale cloud task documents.
+        allLocalDeletions.forEach { deletion ->
+            val remoteTask = remoteBySyncId[deletion.syncId]
+            if (remoteTask == null || deletion.deletedAt >= remoteTask.updatedAt) {
+                deletionsRef.document(deletion.syncId).set(
+                    mapOf("syncId" to deletion.syncId, "deletedAt" to deletion.deletedAt)
+                ).await()
+                tasksRef.document(deletion.syncId).delete().await()
+            }
+        }
+
+        val tasksToUpload = currentLocalTasks.filter { local ->
             val remote = remoteBySyncId[local.syncId]
-            remote == null || local.updatedAt > remote.updatedAt
+            val remoteDeletion = remoteDeletionBySyncId[local.syncId]
+            (remoteDeletion == null || local.updatedAt > remoteDeletion.deletedAt) &&
+                (remote == null || local.updatedAt > remote.updatedAt)
         }
         tasksToUpload.forEach { task ->
             tasksRef.document(task.syncId).set(task.toCloudMap()).await()
+            // A newer edit intentionally resurrects a previously deleted task.
+            deletionsRef.document(task.syncId).delete().await()
+            repository.removeDeletion(task.syncId)
         }
 
         CloudSyncResult(uploaded = tasksToUpload.size, downloaded = downloaded)
