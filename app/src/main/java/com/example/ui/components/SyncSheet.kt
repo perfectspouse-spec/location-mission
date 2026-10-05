@@ -150,12 +150,18 @@ fun SyncSheet(
             if (currentUser != null) {
                 Button(
                     onClick = onTriggerSync,
+                    enabled = !syncState.isSyncing,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.CloudSync, contentDescription = null)
+                    if (syncState.isSyncing) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.CloudSync, contentDescription = null)
+                    }
                     Spacer(Modifier.width(8.dp))
-                    Text("Şimdi senkronize et")
+                    Text(if (syncState.isSyncing) "Senkronize ediliyor…" else "Şimdi senkronize et")
                 }
+                Text(syncState.lastSyncMessage, style = MaterialTheme.typography.bodySmall)
             }
 
             Text(
